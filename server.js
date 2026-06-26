@@ -2,6 +2,7 @@ const express = require('express');
 const http = require('http');
 const { Server } = require('socket.io');
 const path = require('path');
+const crypto = require('crypto'); // 引入内置加密模块，用于生成高安全性的 Token
 
 const app = express();
 const server = http.createServer(app);
@@ -12,7 +13,7 @@ app.use(express.static(path.join(__dirname, 'public')));
 
 // 全局状态内存存储
 let clients = {}; // 记录当前在线的设备信息。结构: { socketId: { id, name } }
-let transferTasks = {}; // 记录进行中的文件传输任务。结构: { taskToken: { senderId, targetId, downloadRes, uploadReq, status } }
+let transferTasks = {}; // 记录进行中的文件传输任务。结构: { taskToken: { senderId, targetId, downloadRes, uploadReq, status, timeoutId } }
 
 /**
  * 封装统一的错误通知函数
@@ -78,7 +79,17 @@ io.on('connection', (socket) => {
       }
 
       // 动态生成唯一传输令牌（Task Token），作为后续两端 HTTP 握手、配对的唯一凭证
-      const taskToken = 'task_' + Math.random().toString(36).substring(2, 9);
+      const taskToken = 'task_' + crypto.randomBytes(16).toString('hex');
+
+      // 设定 “无响应倒计时”，防止接收方直接无视弹窗导致内存泄漏
+      const timeoutId = setTimeout(() => {
+        if (
+          transferTasks[taskToken] &&
+          transferTasks[taskToken].status === 'waiting-receiver'
+        ) {
+          delete transferTasks[taskToken];
+        }
+      }, 60 * 1000);
 
       // 初始化传输任务上下文，留空 HTTP 句柄，等待双方建立连接
       transferTasks[taskToken] = {
@@ -87,6 +98,7 @@ io.on('connection', (socket) => {
         downloadRes: null, // 预留给接收端下载响应
         uploadReq: null, // 预留给发送端上传请求
         status: 'waiting-receiver',
+        timeoutId: timeoutId, // 挂载定时器句柄以便后续清除
       };
 
       // 将文件元数据通过信令通道转发给接收方，触发前端的确认弹窗
@@ -110,6 +122,8 @@ io.on('connection', (socket) => {
 
     const task = transferTasks[taskToken];
     if (task) {
+      // 用户主动拒绝了，立刻清除定时器并销毁任务
+      if (task.timeoutId) clearTimeout(task.timeoutId);
       // 通知发送方：对方拒绝了你
       io.to(task.senderId).emit('invite-declined', { taskToken });
       // 及时销毁对应的内存任务对象
@@ -130,6 +144,8 @@ io.on('connection', (socket) => {
           task.senderId === socket.id ? task.targetId : task.senderId;
         notifyError(peerId, '由于对方断开网络，当前传输任务已被动终止。');
 
+        // 清除尚未触发的定时器
+        if (task.timeoutId) clearTimeout(task.timeoutId);
         // 强行关闭还吊着的 HTTP 响应和请求，防止连接悬挂、内存泄漏
         if (task.downloadRes && !task.downloadRes.writableEnded) {
           task.downloadRes.end();
@@ -161,6 +177,14 @@ app.get('/download', (req, res) => {
   const task = transferTasks[taskToken];
 
   try {
+    // 接收端已经连入，说明用户点了同意！立刻解除超时限制
+    if (task.timeoutId) {
+      clearTimeout(task.timeoutId);
+      task.timeoutId = null;
+    }
+
+    // 切换状态，防止定时器逻辑产生误判
+    task.status = 'transferring';
     // 使用 RFC 5987 规范解决中文文件名在浏览器的下载乱码问题
     const safeFileName = encodeURIComponent(fileName || 'download');
     res.setHeader('Content-Type', fileType || 'application/octet-stream');
@@ -173,7 +197,6 @@ app.get('/download', (req, res) => {
 
     // 挂载响应句柄，供后续 POST 上传流读取并直接对尾拼接
     task.downloadRes = res;
-    task.status = 'ready';
 
     // 监听连接异常关闭（如用户在浏览器下载中途点击了“取消”）
     res.on('close', () => {

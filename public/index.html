@@ -419,6 +419,22 @@
       let lastProgressLine = null;
       let alertTimeout = null;
 
+      // 字节格式化函数
+      function formatBytes(size) {
+        size = Number(size);
+        if (isNaN(size) || size < 0) return '0B';
+
+        const units = ['B', 'KB', 'MB', 'GB', 'TB', 'PB', 'EB', 'ZB', 'YB'];
+        let idx = 0;
+
+        while (size >= 1024 && idx < units.length - 1) {
+          size /= 1024;
+          idx++;
+        }
+
+        return size.toFixed(2) + units[idx];
+      }
+
       // Tab 切换逻辑
       function switchTab(panelId, btn) {
         document
@@ -434,19 +450,22 @@
       function printLog(msg, type = 'info', isProgress = false) {
         const emoji = type === 'success' ? '✅' : type === 'error' ? '❌' : '>';
         const timeStr = `[${new Date().toLocaleTimeString()}]`;
-        const colorStyle =
-          type === 'error'
-            ? 'color: #ff6b6b;'
-            : type === 'success'
-              ? 'color: #4cd964;'
-              : 'color: inherit;';
-        const htmlContent = `<span style="${colorStyle}">${emoji} ${timeStr} ${msg}</span><br>`;
+        const fullText = `${emoji} ${timeStr} ${msg}`;
 
         if (isProgress && lastProgressLine) {
-          lastProgressLine.innerHTML = htmlContent;
+          // 如果是正在更新的进度条，直接改变 textContent，既安全又高效
+          lastProgressLine.textContent = fullText;
         } else {
-          const wrapper = document.createElement('span');
-          wrapper.innerHTML = htmlContent;
+          const wrapper = document.createElement('div');
+          wrapper.textContent = fullText;
+
+          // 根据类型赋予预设颜色
+          if (type === 'error') {
+            wrapper.style.color = '#ff6b6b';
+          } else if (type === 'success') {
+            wrapper.style.color = '#4cd964';
+          }
+
           logBox.appendChild(wrapper);
           lastProgressLine = isProgress ? wrapper : null;
         }
@@ -550,26 +569,43 @@
       socket.on('update-room', (clientList) => {
         const otherDevices = clientList.filter((c) => c.id !== socket.id);
         const devicesDiv = document.getElementById('devices');
-        devicesDiv.innerHTML = '';
+
+        devicesDiv.textContent = '';
+
         clientList.forEach((c) => {
           const item = document.createElement('div');
           item.className = 'device-item';
-          item.innerHTML = `💻 ${c.name} ${c.id === socket.id ? '<strong>(我)</strong>' : ''}`;
+
+          item.textContent = `💻 ${c.name}`;
+          if (c.id === socket.id) {
+            const meTag = document.createElement('strong');
+            meTag.textContent = ' (我)';
+            item.appendChild(meTag);
+          }
           devicesDiv.appendChild(item);
         });
 
-        targetSelect.innerHTML = otherDevices
-          .map((c) => `<option value="${c.id}">${c.name}</option>`)
-          .join('');
-        if (otherDevices.length === 0)
-          targetSelect.innerHTML = '<option value="">当前无其他设备</option>';
+        targetSelect.textContent = '';
+        if (otherDevices.length === 0) {
+          const opt = document.createElement('option');
+          opt.value = '';
+          opt.textContent = '当前无其他设备';
+          targetSelect.appendChild(opt);
+        } else {
+          otherDevices.forEach((c) => {
+            const opt = document.createElement('option');
+            opt.value = c.id;
+            opt.textContent = c.name;
+            targetSelect.appendChild(opt);
+          });
+        }
       });
 
       // 触发文件发送邀请
       sendBtn.onclick = () => {
         const file = fileInput.files[0];
         const targetId = targetSelect.value;
-        if (!targetId || targetSelect.innerHTML.includes('无其他设备'))
+        if (!targetId || targetSelect.textContent.includes('无其他设备'))
           return showAlert('没有可接收的设备！', '⚠️');
         if (!file) return showAlert('请先选择文件！', '📁');
 
@@ -585,7 +621,11 @@
       sendTextBtn.onclick = () => {
         const text = textInput.value.trim();
         const targetId = targetSelect.value;
-        if (!targetId || targetSelect.innerHTML.includes('无其他设备'))
+        if (
+          !targetId ||
+          targetSelect.textContent.includes('无other设备') ||
+          targetSelect.textContent.includes('无其他设备')
+        )
           return showAlert('没有可接收的设备！', '⚠️');
         if (!text) return showAlert('请输入需要传输的文本内容！', '📝');
 
@@ -633,8 +673,11 @@
             const percentComplete = Math.round(
               (event.loaded / event.total) * 100,
             );
+            const loadedStr = formatBytes(event.loaded);
+            const totalStr = formatBytes(event.total);
+
             printLog(
-              `文件正在同步推流中... 进度: ${percentComplete}%`,
+              `文件正在同步推流中... 进度: ${percentComplete}% (${loadedStr} / ${totalStr})`,
               'info',
               true,
             );
