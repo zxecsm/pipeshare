@@ -1,0 +1,473 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no"
+    />
+    <meta
+      name="description"
+      content="基于 Web 管道流技术的零无感快传工具，不占服务器磁盘，文件、文本秒级跨端互传"
+    />
+    <title>PipeShare</title>
+    <link rel="icon" href="favicon.svg" />
+    <style>
+      :root {
+        --bg-main: #f4f6f9;
+        --bg-card: #ffffff;
+        --text-main: #2c3e50;
+        --text-muted: #7f8c8d;
+        --border-color: #e2e8f0;
+        --primary-color: #0070f3;
+        --primary-hover: #0051cb;
+        --tag-bg: #e1f5fe;
+        --tag-color: #0288d1;
+        --log-bg: #1e1e1e;
+        --log-text: #39ff14;
+        --shadow: 0 10px 30px rgba(0, 0, 0, 0.05);
+      }
+
+      @media (prefers-color-scheme: dark) {
+        :root {
+          --bg-main: #0f172a;
+          --bg-card: #1e293b;
+          --text-main: #f8fafc;
+          --text-muted: #94a3b8;
+          --border-color: #334155;
+          --primary-color: #3b82f6;
+          --primary-hover: #2563eb;
+          --tag-bg: #1e3a8a;
+          --tag-color: #93c5fd;
+          --log-bg: #020617;
+          --log-text: #10b981;
+          --shadow: 0 10px 30px rgba(0, 0, 0, 0.3);
+        }
+      }
+
+      * {
+        box-sizing: border-box;
+        transition:
+          background-color 0.2s,
+          border-color 0.2s,
+          color 0.2s;
+      }
+
+      body {
+        font-family: -apple-system, BlinkMacSystemFont, sans-serif;
+        background-color: var(--bg-main);
+        color: var(--text-main);
+        margin: 0;
+        padding: 16px;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        min-height: 100vh;
+      }
+
+      .container {
+        width: 100%;
+        max-width: 550px;
+        margin: 0 auto;
+      }
+      .box {
+        background-color: var(--bg-card);
+        padding: 24px;
+        border-radius: 20px;
+        box-shadow: var(--shadow);
+        margin-bottom: 20px;
+        border: 1px solid var(--border-color);
+      }
+
+      h3 {
+        margin-top: 0;
+        margin-bottom: 18px;
+        font-size: 1.1rem;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+      }
+      label {
+        display: block;
+        font-size: 0.85rem;
+        font-weight: 500;
+        color: var(--text-muted);
+        margin-bottom: 6px;
+      }
+
+      select,
+      input[type='file'],
+      textarea,
+      button {
+        width: 100%;
+        padding: 14px 16px;
+        margin-top: 4px;
+        margin-bottom: 16px;
+        border-radius: 12px;
+        border: 1px solid var(--border-color);
+        background-color: var(--bg-main);
+        color: var(--text-main);
+        font-size: 0.95rem;
+        outline: none;
+        -webkit-appearance: none;
+      }
+
+      select {
+        cursor: pointer;
+        background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 24 24' stroke='%237f8c8d'%3E%3Cpath stroke-linecap='round' stroke-linejoin='round' stroke-width='2' d='M19 9l-7 7-7-7'/%3E%3C/svg%3E");
+        background-repeat: no-repeat;
+        background-position: right 16px center;
+        background-size: 16px;
+        padding-right: 40px;
+      }
+
+      textarea {
+        resize: none;
+        height: 100px;
+        font-family: inherit;
+        line-height: 1.5;
+      }
+
+      input[type='file']::file-selector-button {
+        background: var(--primary-color);
+        color: white;
+        border: none;
+        padding: 6px 12px;
+        border-radius: 6px;
+        cursor: pointer;
+        margin-right: 10px;
+      }
+
+      button {
+        background-color: var(--primary-color);
+        color: white;
+        font-weight: 600;
+        border: none;
+        margin-bottom: 0;
+        margin-top: 4px;
+        cursor: pointer;
+      }
+      button:hover {
+        background-color: var(--primary-hover);
+        transform: translateY(-1px);
+      }
+      button:active {
+        transform: translateY(1px);
+      }
+
+      /* --- Tab 选项卡样式 --- */
+      .tabs {
+        display: flex;
+        gap: 8px;
+        margin-bottom: 16px;
+        background: var(--bg-main);
+        padding: 4px;
+        border-radius: 10px;
+      }
+      .tab-btn {
+        flex: 1;
+        padding: 10px;
+        border: none;
+        border-radius: 8px;
+        background: transparent;
+        color: var(--text-muted);
+        font-size: 0.9rem;
+        font-weight: 600;
+        cursor: pointer;
+        margin: 0;
+      }
+      .tab-btn.active {
+        background: var(--bg-card);
+        color: var(--primary-color);
+        box-shadow: var(--shadow);
+      }
+      .tab-content {
+        display: none;
+      }
+      .tab-content.active {
+        display: block;
+      }
+
+      .device-tag {
+        font-size: 0.8rem;
+        background-color: var(--tag-bg);
+        color: var(--tag-color);
+        padding: 6px 14px;
+        border-radius: 30px;
+        font-weight: 600;
+      }
+      .device-item {
+        padding: 10px 14px;
+        background-color: var(--bg-main);
+        border-radius: 10px;
+        margin-top: 8px;
+        font-size: 0.9rem;
+      }
+
+      .log {
+        background-color: var(--log-bg);
+        color: var(--log-text);
+        padding: 16px;
+        border-radius: 14px;
+        height: 180px;
+        overflow-y: auto;
+        font-size: 0.85rem;
+        font-family: monospace;
+        line-height: 1.6;
+      }
+      .log::-webkit-scrollbar {
+        width: 6px;
+      }
+      .log::-webkit-scrollbar-thumb {
+        background: rgba(255, 255, 255, 0.1);
+        border-radius: 3px;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="container">
+      <div class="box">
+        <h3>
+          <span>📱 当前在线设备</span>
+          <span id="my-name" class="device-tag">正在连接...</span>
+        </h3>
+        <div id="devices" style="color: var(--text-muted); font-size: 0.9rem">
+          等待其他设备加入...
+        </div>
+      </div>
+
+      <div class="box">
+        <h3>📤 实时流式传输</h3>
+
+        <label>1. 选择接收目标设备：</label>
+        <select id="target-device"></select>
+
+        <div class="tabs">
+          <button
+            class="tab-btn active"
+            onclick="switchTab('file-panel', this)"
+          >
+            📁 文件快传
+          </button>
+          <button class="tab-btn" onclick="switchTab('text-panel', this)">
+            📝 文本快传
+          </button>
+        </div>
+
+        <div id="file-panel" class="tab-content active">
+          <label>2. 选择本地文件：</label>
+          <input type="file" id="file-input" />
+          <button id="send-btn">⚡ 发起文件快传</button>
+        </div>
+
+        <div id="text-panel" class="tab-content">
+          <label>2. 输入传输文本 / 网址：</label>
+          <textarea
+            id="text-input"
+            placeholder="在此输入需要发送的文本、代码或URL链接..."
+          ></textarea>
+          <button id="send-text-btn">🚀 发送普通文本</button>
+        </div>
+      </div>
+
+      <div class="box">
+        <h3>📜 实时传输日志</h3>
+        <div id="log" class="log"></div>
+      </div>
+    </div>
+
+    <script src="/socket.io/socket.io.js"></script>
+    <script>
+      const socket = io();
+      const logBox = document.getElementById('log');
+      const targetSelect = document.getElementById('target-device');
+      const fileInput = document.getElementById('file-input');
+      const textInput = document.getElementById('text-input');
+      const sendBtn = document.getElementById('send-btn');
+      const sendTextBtn = document.getElementById('send-text-btn');
+
+      let lastProgressLine = null;
+
+      // Tab 切换逻辑
+      function switchTab(panelId, btn) {
+        document
+          .querySelectorAll('.tab-content')
+          .forEach((p) => p.classList.remove('active'));
+        document
+          .querySelectorAll('.tab-btn')
+          .forEach((b) => b.classList.remove('active'));
+        document.getElementById(panelId).classList.add('active');
+        btn.classList.add('active');
+      }
+
+      function printLog(msg, type = 'info', isProgress = false) {
+        const emoji = type === 'success' ? '✅' : type === 'error' ? '❌' : '>';
+        const timeStr = `[${new Date().toLocaleTimeString()}]`;
+        const colorStyle =
+          type === 'error'
+            ? 'color: #ff6b6b;'
+            : type === 'success'
+              ? 'color: #4cd964;'
+              : 'color: inherit;';
+        const htmlContent = `<span style="${colorStyle}">${emoji} ${timeStr} ${msg}</span><br>`;
+
+        if (isProgress && lastProgressLine) {
+          lastProgressLine.innerHTML = htmlContent;
+        } else {
+          const wrapper = document.createElement('span');
+          wrapper.innerHTML = htmlContent;
+          logBox.appendChild(wrapper);
+          lastProgressLine = isProgress ? wrapper : null;
+        }
+        logBox.scrollTop = logBox.scrollHeight;
+      }
+
+      socket.on('connect', () => {
+        document.getElementById('my-name').textContent =
+          `我的ID: ${socket.id.substring(0, 4)}`;
+        printLog('成功连接到中转信令服务器');
+      });
+
+      socket.on('transfer-error', (data) => {
+        printLog(data.message, 'error');
+      });
+
+      socket.on('update-room', (clientList) => {
+        const otherDevices = clientList.filter((c) => c.id !== socket.id);
+        const devicesDiv = document.getElementById('devices');
+        devicesDiv.innerHTML = '';
+        clientList.forEach((c) => {
+          const item = document.createElement('div');
+          item.className = 'device-item';
+          item.innerHTML = `💻 ${c.name} ${c.id === socket.id ? '<strong>(我)</strong>' : ''}`;
+          devicesDiv.appendChild(item);
+        });
+
+        targetSelect.innerHTML = otherDevices
+          .map((c) => `<option value="${c.id}">${c.name}</option>`)
+          .join('');
+        if (otherDevices.length === 0)
+          targetSelect.innerHTML = '<option value="">当前无其他设备</option>';
+      });
+
+      // 触发文件发送邀请
+      sendBtn.onclick = () => {
+        const file = fileInput.files[0];
+        const targetId = targetSelect.value;
+        if (!targetId || targetSelect.innerHTML.includes('无其他设备'))
+          return alert('没有可接收的设备！');
+        if (!file) return alert('请先选择文件！');
+
+        printLog(`正在向目标设备发送文件 [${file.name}] 的传输邀请...`);
+        socket.emit('file-share-invite', {
+          targetId,
+          fileName: file.name,
+          fileType: file.type,
+        });
+      };
+
+      // ==================== 触发文本发送 ====================
+      sendTextBtn.onclick = () => {
+        const text = textInput.value.trim();
+        const targetId = targetSelect.value;
+        if (!targetId || targetSelect.innerHTML.includes('无其他设备'))
+          return alert('没有可接收的设备！');
+        if (!text) return alert('请输入需要传输的文本内容！');
+
+        printLog(`正在向目标设备投递文本内容...`);
+        socket.emit('text-share', { targetId, content: text });
+        textInput.value = ''; // 发送后清空输入框
+      };
+
+      // 接收端：收到来自他人的文本
+      socket.on('incoming-text', (data) => {
+        const { senderName, content } = data;
+        printLog(`收到来自 [${senderName}] 的文本数据!`, 'success');
+
+        // 弹出确认框确认是否复制，同时在黑框日志中完整展示
+        if (
+          confirm(
+            `收到来自【${senderName}】的文本：\n\n${content}\n\n是否直接复制到剪贴板？`,
+          )
+        ) {
+          navigator.clipboard
+            .writeText(content)
+            .then(() => alert('已成功复制到系统剪贴板！'))
+            .catch(() => alert('复制失败，请在日志中手动复制。'));
+        }
+        printLog(`[文本内容]: ${content}`);
+      });
+      // =====================================================
+
+      socket.on('invite-declined', () => {
+        printLog(`对方拒绝了您的传输邀请。`, 'error');
+      });
+
+      socket.on('start-upload-now', (data) => {
+        const { taskToken } = data;
+        const file = fileInput.files[0];
+        if (!file) return;
+
+        printLog(
+          '收到反馈：对方已成功打通下载管道！开始流式推送数据...',
+          'success',
+        );
+        const xhr = new XMLHttpRequest();
+        xhr.open('POST', `/upload?taskToken=${taskToken}`, true);
+
+        xhr.upload.onprogress = (event) => {
+          if (event.lengthComputable) {
+            const percentComplete = Math.round(
+              (event.loaded / event.total) * 100,
+            );
+            printLog(
+              `文件正在同步推流中... 进度: ${percentComplete}%`,
+              'info',
+              true,
+            );
+          }
+        };
+
+        xhr.onload = () => {
+          if (xhr.status === 200) {
+            printLog('🎉 文件流推送完毕，对方应已下载完成！', 'success');
+            fileInput.value = '';
+          } else {
+            printLog(
+              `传输中断，中转站拒绝了请求: ${xhr.responseText}`,
+              'error',
+            );
+          }
+        };
+        xhr.onerror = () =>
+          printLog('推流发生致命错误，网络连接中断。', 'error');
+        xhr.send(file);
+      });
+
+      socket.on('incoming-file', (data) => {
+        const { taskToken, fileName, fileType, senderName } = data;
+        printLog(`收到来自 [${senderName}] 的新文件邀请: ${fileName}`);
+
+        if (
+          confirm(
+            `【${senderName}】想给你发送一个文件：\n\n名称: ${fileName}\n\n是否接收并建立实时流下载？`,
+          )
+        ) {
+          printLog('已同意接收，正在向服务器请求挂载下载流...');
+          const dlUrl = `/download?taskToken=${taskToken}&fileName=${encodeURIComponent(fileName)}&fileType=${encodeURIComponent(fileType)}`;
+          const a = document.createElement('a');
+          a.style.display = 'none';
+          a.href = dlUrl;
+          if (fileName) a.download = fileName;
+          document.body.appendChild(a);
+          a.click();
+          setTimeout(() => a.remove(), 1500);
+        } else {
+          printLog('拒绝了对方的文件传输邀请。');
+          socket.emit('file-share-decline', { taskToken });
+        }
+      });
+    </script>
+  </body>
+</html>
