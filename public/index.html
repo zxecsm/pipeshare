@@ -1290,6 +1290,14 @@
         function updateTransferBytes(key, loaded, total, status) {
           const item = getTransfer(key);
           if (!item) return;
+          // 完成/失败后，允许迟到的进度事件被忽略，避免状态从“已完成”回退成“推送中”
+          if (
+            item.status === '已完成' ||
+            item.status === '已中断' ||
+            item.status === '已拒绝'
+          ) {
+            return;
+          }
           const now = Date.now();
           const nextLoaded = Math.max(item.loaded, Number(loaded) || 0);
 
