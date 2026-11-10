@@ -4,14 +4,23 @@
     <meta charset="UTF-8" />
     <meta
       name="viewport"
-      content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no"
+      content="width=device-width, initial-scale=1.0"
     />
     <meta
       name="description"
-      content="基于 Web 管道流技术的零无感快传工具，不占服务器磁盘，文件、文本秒级跨端互传"
+      content="基于 Web 管道流技术的零无感快传工具，私有房间隔离，不占服务器磁盘，文件、文本秒级跨端互传"
     />
-    <title>PipeShare</title>
+    <meta name="theme-color" content="#0070f3" media="(prefers-color-scheme: light)" />
+    <meta name="theme-color" content="#0f172a" media="(prefers-color-scheme: dark)" />
+    <meta name="application-name" content="PipeShare" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+    <meta name="apple-mobile-web-app-title" content="PipeShare" />
+    <title>PipeShare · 私有房间快传</title>
     <link rel="icon" href="favicon.svg" />
+    <link rel="manifest" href="manifest.webmanifest" />
+    <link rel="apple-touch-icon" href="icons/apple-touch-icon.png" />
     <style>
       :root {
         --bg-main: #f4f6f9;
@@ -21,6 +30,7 @@
         --border-color: #e2e8f0;
         --primary-color: #0070f3;
         --primary-hover: #0051cb;
+        --danger-color: #e74c3c;
         --tag-bg: #e1f5fe;
         --tag-color: #0288d1;
         --log-bg: #1e1e1e;
@@ -38,6 +48,7 @@
           --border-color: #334155;
           --primary-color: #3b82f6;
           --primary-hover: #2563eb;
+          --danger-color: #f87171;
           --tag-bg: #1e3a8a;
           --tag-color: #93c5fd;
           --log-bg: #020617;
@@ -55,8 +66,12 @@
           color 0.2s;
       }
 
+      html {
+        -webkit-text-size-adjust: 100%;
+      }
+
       body {
-        font-family: -apple-system, BlinkMacSystemFont, sans-serif;
+        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
         background-color: var(--bg-main);
         color: var(--text-main);
         margin: 0;
@@ -66,6 +81,10 @@
         align-items: center;
         justify-content: center;
         min-height: 100vh;
+        min-height: 100dvh;
+        /* 双保险：任何组件意外超宽时也不会出现整页横向滚动条 */
+        overflow-x: hidden;
+        overscroll-behavior-y: contain;
       }
 
       .container {
@@ -80,6 +99,9 @@
         box-shadow: var(--shadow);
         margin-bottom: 20px;
         border: 1px solid var(--border-color);
+      }
+      .hidden {
+        display: none !important;
       }
 
       h3 {
@@ -100,6 +122,7 @@
 
       select,
       input[type='file'],
+      input[type='text'],
       textarea,
       button {
         width: 100%;
@@ -110,9 +133,20 @@
         border: 1px solid var(--border-color);
         background-color: var(--bg-main);
         color: var(--text-main);
-        font-size: 0.95rem;
+        /* iOS Safari 在小于 16px 的输入框聚焦时会自动放大页面，这里统一为 16px */
+        font-size: 1rem;
         outline: none;
         -webkit-appearance: none;
+      }
+
+      input[type='text']:focus,
+      textarea:focus,
+      select:focus {
+        border-color: var(--primary-color);
+      }
+      input[type='text']::placeholder,
+      textarea::placeholder {
+        color: var(--text-muted);
       }
 
       select {
@@ -150,12 +184,204 @@
         margin-top: 4px;
         cursor: pointer;
       }
-      button:hover {
+      button:hover:not(:disabled) {
         background-color: var(--primary-hover);
         transform: translateY(-1px);
       }
-      button:active {
+      button:active:not(:disabled) {
         transform: translateY(1px);
+      }
+      button:disabled {
+        opacity: 0.5;
+        cursor: not-allowed;
+      }
+
+      /* --- 登录 / 建房页 --- */
+      .gate {
+        padding: 28px 24px;
+      }
+      .brand {
+        display: flex;
+        align-items: center;
+        gap: 14px;
+        margin-bottom: 26px;
+      }
+      .brand-icon {
+        width: 46px;
+        height: 46px;
+        border-radius: 12px;
+        flex: 0 0 auto;
+      }
+      .brand h1 {
+        margin: 0;
+        font-size: 1.45rem;
+        letter-spacing: 0.5px;
+      }
+      .brand p {
+        margin: 4px 0 0;
+        color: var(--text-muted);
+        font-size: 0.85rem;
+      }
+      .divider {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        color: var(--text-muted);
+        font-size: 0.8rem;
+        margin: 22px 0 18px;
+      }
+      .divider::before,
+      .divider::after {
+        content: '';
+        flex: 1;
+        height: 1px;
+        background: var(--border-color);
+      }
+      .hint {
+        margin: 18px 0 0;
+        font-size: 0.8rem;
+        line-height: 1.6;
+        color: var(--text-muted);
+        background: var(--bg-main);
+        border-radius: 10px;
+        padding: 12px;
+      }
+      .footer-note {
+        text-align: center;
+        font-size: 0.78rem;
+        color: var(--text-muted);
+        padding-bottom: 12px;
+      }
+
+      /* --- 房间信息卡片 --- */
+      .room-card {
+        padding: 20px 22px;
+      }
+      .room-card-main {
+        display: flex;
+        align-items: flex-start;
+        justify-content: space-between;
+        gap: 12px;
+      }
+      .room-label {
+        font-size: 0.78rem;
+        color: var(--text-muted);
+        margin-bottom: 4px;
+      }
+      .room-code-row {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        flex-wrap: wrap;
+      }
+      .room-code {
+        font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+        font-size: clamp(1.15rem, 5.5vw, 1.5rem);
+        font-weight: 700;
+        letter-spacing: 0.18em;
+        color: var(--primary-color);
+        overflow-wrap: anywhere;
+      }
+      .conn-chip {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        font-size: 0.72rem;
+        color: var(--text-muted);
+        background: var(--bg-main);
+        border-radius: 30px;
+        padding: 4px 10px;
+        white-space: nowrap;
+      }
+      .conn-chip .dot {
+        width: 7px;
+        height: 7px;
+        border-radius: 50%;
+        background: #2ecc71;
+      }
+      .conn-chip.offline .dot {
+        background: var(--danger-color);
+      }
+      .conn-chip.offline {
+        color: var(--danger-color);
+      }
+      .wake-chip {
+        display: inline-flex;
+        align-items: center;
+        gap: 4px;
+        font-size: 0.72rem;
+        color: #0284c7;
+        background: var(--tag-bg);
+        border-radius: 30px;
+        padding: 4px 10px;
+        white-space: nowrap;
+        cursor: help;
+      }
+      .wake-chip.offline {
+        color: var(--text-muted);
+        background: var(--bg-main);
+      }
+      .wake-chip.hidden {
+        display: none;
+      }
+      .notify-chip {
+        display: inline-flex;
+        align-items: center;
+        gap: 4px;
+        font-size: 0.72rem;
+        color: var(--text-muted);
+        background: var(--bg-main);
+        border-radius: 30px;
+        padding: 4px 10px;
+        white-space: nowrap;
+        cursor: pointer;
+        user-select: none;
+      }
+      .notify-chip.on {
+        color: #0f9d58;
+        background: rgba(46, 204, 113, 0.12);
+      }
+      .notify-chip.off {
+        color: var(--text-muted);
+        background: var(--bg-main);
+      }
+      .notify-chip.hidden {
+        display: none;
+      }
+      .invite-row {
+        display: flex;
+        gap: 10px;
+        margin-top: 16px;
+        flex-wrap: wrap;
+      }
+      .invite-row button {
+        flex: 1 1 160px;
+        min-width: 0;
+        margin: 0;
+      }
+
+      .btn-small {
+        padding: 10px 14px;
+        font-size: 0.85rem;
+        border-radius: 10px;
+      }
+      .btn-secondary {
+        background-color: transparent;
+        color: var(--primary-color);
+        border: 1px solid var(--primary-color);
+      }
+      .btn-secondary:hover:not(:disabled) {
+        background-color: rgba(0, 112, 243, 0.08);
+        color: var(--primary-color);
+      }
+      .btn-ghost {
+        background-color: transparent;
+        color: var(--text-muted);
+        border: 1px solid var(--border-color);
+      }
+      .btn-ghost:hover:not(:disabled) {
+        background-color: rgba(127, 140, 141, 0.1);
+        color: var(--text-main);
       }
 
       /* --- Tab 选项卡样式 --- */
@@ -199,12 +425,197 @@
         border-radius: 30px;
         font-weight: 600;
       }
+      .device-list {
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+      }
       .device-item {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 8px;
         padding: 10px 14px;
         background-color: var(--bg-main);
         border-radius: 10px;
-        margin-top: 8px;
         font-size: 0.9rem;
+        min-width: 0;
+      }
+      .device-item > span {
+        min-width: 0;
+        overflow-wrap: anywhere;
+      }
+      .device-empty {
+        color: var(--text-muted);
+        font-size: 0.88rem;
+        padding: 4px 2px;
+      }
+      .self-badge {
+        display: inline-block;
+        font-size: 0.72rem;
+        color: var(--tag-color);
+        background: var(--tag-bg);
+        border-radius: 6px;
+        padding: 2px 8px;
+        margin-left: 8px;
+      }
+
+      /* --- 已选文件列表 --- */
+      .selected-files {
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+        margin: 4px 0 12px;
+      }
+      .selected-files:empty {
+        display: none;
+      }
+      .file-item {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        background: var(--bg-main);
+        border-radius: 10px;
+        padding: 8px 10px;
+        min-width: 0;
+      }
+      .file-info {
+        flex: 1;
+        min-width: 0;
+      }
+      .file-name {
+        display: block;
+        font-size: 0.86rem;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+      .file-size {
+        display: block;
+        margin-top: 2px;
+        font-size: 0.72rem;
+        color: var(--text-muted);
+      }
+      .file-remove {
+        flex: 0 0 auto;
+        width: auto;
+        margin: 0;
+        padding: 6px 9px;
+        border: none;
+        border-radius: 8px;
+        background: transparent;
+        color: var(--text-muted);
+        font-size: 1rem;
+        line-height: 1;
+      }
+      .file-remove:hover:not(:disabled) {
+        background: rgba(231, 76, 60, 0.1);
+        color: var(--danger-color);
+        transform: none;
+      }
+      .file-summary {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 8px;
+        margin: 0 0 12px;
+        font-size: 0.78rem;
+        color: var(--text-muted);
+        min-width: 0;
+      }
+      .file-summary > span {
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+      .file-summary button {
+        flex: 0 0 auto;
+        width: auto;
+        margin: 0;
+        padding: 4px 10px;
+        font-size: 0.75rem;
+      }
+
+      /* --- 实时传输进度 --- */
+      .transfer-list {
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+      }
+      .transfer-item {
+        min-width: 0;
+        padding: 10px 0;
+        border-bottom: 1px dashed var(--border-color);
+      }
+      .transfer-item:first-child {
+        padding-top: 0;
+      }
+      .transfer-item:last-child {
+        padding-bottom: 0;
+        border-bottom: none;
+      }
+      .transfer-head {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        min-width: 0;
+      }
+      .transfer-dir {
+        flex: 0 0 auto;
+        font-size: 0.9rem;
+      }
+      .transfer-name {
+        flex: 1;
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        font-size: 0.86rem;
+      }
+      .transfer-status {
+        flex: 0 0 auto;
+        font-size: 0.72rem;
+        color: var(--text-muted);
+        white-space: nowrap;
+      }
+      .progress-track {
+        height: 6px;
+        margin: 8px 0 6px;
+        border-radius: 99px;
+        background: var(--bg-main);
+        overflow: hidden;
+      }
+      .progress-fill {
+        width: 0;
+        height: 100%;
+        border-radius: 99px;
+        background: var(--primary-color);
+        transition: width 0.2s ease;
+      }
+      .progress-fill.done {
+        background: #2ecc71;
+      }
+      .progress-fill.error {
+        background: var(--danger-color);
+      }
+      .transfer-meta {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 8px;
+        min-width: 0;
+        font-size: 0.7rem;
+        color: var(--text-muted);
+      }
+      .transfer-meta > span {
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+      .transfer-meta > span:last-child {
+        flex: 0 0 auto;
       }
 
       .log {
@@ -214,9 +625,12 @@
         border-radius: 14px;
         height: 180px;
         overflow-y: auto;
+        overflow-x: hidden;
         font-size: 0.85rem;
         font-family: monospace;
         line-height: 1.6;
+        overflow-wrap: anywhere;
+        word-break: break-word;
       }
       .log::-webkit-scrollbar {
         width: 6px;
@@ -241,6 +655,7 @@
         opacity: 0;
         pointer-events: none;
         transition: opacity 0.2s ease;
+        padding: 16px;
       }
       .modal-overlay.active {
         opacity: 1;
@@ -248,8 +663,10 @@
       }
       .modal-box {
         background-color: var(--bg-card);
-        width: 90%;
-        max-width: 400px;
+        width: min(400px, 100%);
+        max-height: calc(100vh - 32px);
+        max-height: calc(100dvh - 32px);
+        overflow-y: auto;
         padding: 24px;
         border-radius: 20px;
         box-shadow: var(--shadow);
@@ -265,6 +682,7 @@
         font-size: 1.2rem;
         font-weight: 700;
         margin-bottom: 12px;
+        overflow-wrap: anywhere;
       }
       .modal-content {
         font-size: 0.95rem;
@@ -276,8 +694,11 @@
         background: var(--bg-main);
         padding: 12px;
         border-radius: 10px;
-        max-height: 150px;
+        max-height: 240px;
         overflow-y: auto;
+        overflow-x: hidden;
+        overflow-wrap: anywhere;
+        word-break: break-word;
       }
       .modal-actions {
         display: flex;
@@ -285,6 +706,7 @@
       }
       .modal-btn {
         flex: 1;
+        min-width: 0;
         margin: 0;
         padding: 12px;
         border-radius: 10px;
@@ -297,6 +719,37 @@
       .modal-btn-cancel:hover {
         background-color: rgba(0, 0, 0, 0.05);
         color: var(--text-main);
+      }
+
+      /* --- 二维码邀请 --- */
+      .qr-wrap {
+        background: #fff;
+        border-radius: 16px;
+        padding: 14px;
+        display: inline-block;
+        max-width: 100%;
+        margin-bottom: 14px;
+      }
+      .qr-wrap img {
+        display: block;
+        width: 240px;
+        max-width: 100%;
+        height: auto;
+        aspect-ratio: 1 / 1;
+      }
+      .qr-url {
+        font-size: 0.75rem;
+        color: var(--text-muted);
+        overflow-wrap: anywhere;
+        word-break: break-word;
+        background: var(--bg-main);
+        border-radius: 8px;
+        padding: 10px;
+        margin-bottom: 18px;
+        font-family: ui-monospace, monospace;
+        max-height: 72px;
+        overflow-y: auto;
+        overflow-x: hidden;
       }
 
       /* --- 🔔 自定义自动消失 Alert (Toast) 样式 --- */
@@ -322,6 +775,8 @@
         transition:
           transform 0.3s cubic-bezier(0.18, 0.89, 0.32, 1.28),
           opacity 0.2s ease;
+        max-width: calc(100% - 32px);
+        overflow-wrap: anywhere;
       }
       .custom-alert.active {
         opacity: 1;
@@ -333,42 +788,160 @@
         .modal-btn-cancel:hover {
           background-color: rgba(255, 255, 255, 0.05);
         }
+        .notify-chip.on {
+          color: #6ee7b7;
+        }
+      }
+
+      @media (max-width: 420px) {
+        .box {
+          padding: 20px 18px;
+          border-radius: 16px;
+        }
+        .room-code {
+          letter-spacing: 0.15em;
+        }
+        .invite-row {
+          flex-direction: column;
+        }
+        .invite-row button {
+          flex: 1 1 auto;
+        }
+        .custom-alert {
+          padding: 12px 16px;
+          font-size: 0.9rem;
+        }
       }
     </style>
   </head>
   <body>
-    <div class="container">
+    <!-- ======================= 建房 / 加入房间 ======================= -->
+    <div class="container" id="gate-view">
+      <div class="box gate">
+        <div class="brand">
+          <img src="favicon.svg" class="brand-icon" alt="PipeShare" />
+          <div>
+            <h1>PipeShare</h1>
+            <p>私有房间 · 点对点流式快传</p>
+          </div>
+        </div>
+
+        <label for="nickname-input">你的设备昵称</label>
+        <input
+          id="nickname-input"
+          type="text"
+          maxlength="24"
+          placeholder="留空则自动生成"
+          autocomplete="nickname"
+        />
+
+        <button id="create-room-btn">＋ 创建私有房间</button>
+
+        <div class="divider"><span>或加入已有房间</span></div>
+
+        <label for="join-code-input">房间码</label>
+        <input
+          id="join-code-input"
+          type="text"
+          maxlength="12"
+          placeholder="例如 AB3D7K"
+          autocapitalize="characters"
+          autocomplete="off"
+          spellcheck="false"
+        />
+        <button id="join-room-btn" class="btn-secondary">加入房间</button>
+
+        <p class="hint">
+          🔒 只有同一房间内的设备才能互相发现和传输文件，不同房间之间完全隔离。
+        </p>
+
+        <button id="install-app-btn" type="button" class="btn-secondary hidden">
+          📲 安装为独立应用
+        </button>
+      </div>
+      <div class="footer-note">文件全程内存中转 · 不落服务器磁盘</div>
+    </div>
+
+    <!-- ======================= 房间主界面 ======================= -->
+    <div class="container hidden" id="app-view">
+      <div class="box room-card">
+        <div class="room-card-main">
+          <div>
+            <div class="room-label">当前房间码</div>
+            <div class="room-code-row">
+              <span class="room-code" id="room-code">------</span>
+              <span class="conn-chip" id="conn-status">
+                <i class="dot"></i>
+                <span id="conn-text">已连接</span>
+              </span>
+              <span
+                class="wake-chip hidden"
+                id="wake-status"
+                title="传输期间保持页面活跃"
+              >
+                ☀️ 保持活跃
+              </span>
+              <span
+                class="notify-chip hidden"
+                id="notify-status"
+                title="点击开启系统通知"
+              >
+                🔔 开启通知
+              </span>
+            </div>
+          </div>
+          <button id="leave-room-btn" class="btn-ghost btn-small">
+            退出房间
+          </button>
+        </div>
+        <div class="invite-row">
+          <button id="copy-invite-btn" class="btn-secondary btn-small">
+            🔗 复制邀请链接
+          </button>
+          <button id="show-qr-btn" class="btn-small">🔳 邀请二维码</button>
+          <button
+            id="install-app-btn-room"
+            type="button"
+            class="btn-ghost btn-small hidden"
+          >
+            📲 安装应用
+          </button>
+        </div>
+      </div>
+
       <div class="box">
         <h3>
-          <span>📱 当前在线设备</span>
-          <span id="my-name" class="device-tag">正在连接...</span>
+          <span>📱 房间内设备</span>
+          <span id="member-count" class="device-tag">1 台</span>
         </h3>
-        <div id="devices" style="color: var(--text-muted); font-size: 0.9rem">
-          等待其他设备加入...
-        </div>
+        <div id="devices" class="device-list"></div>
       </div>
 
       <div class="box">
         <h3>📤 实时流式传输</h3>
 
-        <label>1. 选择接收目标设备：</label>
+        <label for="target-device">1. 选择接收设备：</label>
         <select id="target-device"></select>
 
         <div class="tabs">
-          <button
-            class="tab-btn active"
-            onclick="switchTab('file-panel', this)"
-          >
+          <button class="tab-btn active" data-panel="file-panel">
             📁 文件快传
           </button>
-          <button class="tab-btn" onclick="switchTab('text-panel', this)">
-            📝 文本快传
-          </button>
+          <button class="tab-btn" data-panel="text-panel">📝 文本快传</button>
         </div>
 
         <div id="file-panel" class="tab-content active">
-          <label>2. 选择本地文件：</label>
-          <input type="file" id="file-input" />
+          <label for="file-input"
+            >2. 选择本地文件（可多选，单次最多 8 个）：</label
+          >
+          <input type="file" id="file-input" multiple />
+          <div id="selected-files" class="selected-files"></div>
+          <div id="file-summary" class="file-summary hidden">
+            <span id="file-summary-text">已选择 0 个文件</span>
+            <button type="button" id="clear-files-btn" class="btn-ghost">
+              清空
+            </button>
+          </div>
           <button id="send-btn">⚡ 发起文件快传</button>
         </div>
 
@@ -382,12 +955,21 @@
         </div>
       </div>
 
+      <div class="box hidden" id="transfer-box">
+        <h3>
+          <span>🚚 当前传输</span>
+          <span id="transfer-count" class="device-tag">0</span>
+        </h3>
+        <div id="transfer-list" class="transfer-list"></div>
+      </div>
+
       <div class="box">
         <h3>📜 实时传输日志</h3>
         <div id="log" class="log"></div>
       </div>
     </div>
 
+    <!-- ======================= 通用确认框 ======================= -->
     <div id="custom-confirm" class="modal-overlay">
       <div class="modal-box">
         <div class="modal-title" id="modal-title">提示</div>
@@ -401,330 +983,1773 @@
       </div>
     </div>
 
+    <!-- ======================= 二维码邀请弹窗 ======================= -->
+    <div id="qr-modal" class="modal-overlay">
+      <div class="modal-box">
+        <div class="modal-title">📷 扫码加入房间</div>
+        <div class="qr-wrap">
+          <img id="qr-img" alt="房间邀请二维码" />
+        </div>
+        <div class="qr-url" id="qr-url"></div>
+        <div class="modal-actions">
+          <button class="modal-btn modal-btn-cancel" id="qr-copy-btn">
+            复制链接
+          </button>
+          <button class="modal-btn" id="qr-close-btn">关闭</button>
+        </div>
+      </div>
+    </div>
+
     <div id="custom-alert" class="custom-alert">
       <span id="alert-icon">💡</span>
       <span id="alert-text">提示内容</span>
     </div>
 
-    <script src="/socket.io/socket.io.js"></script>
-    <script>
-      const socket = io();
-      const logBox = document.getElementById('log');
-      const targetSelect = document.getElementById('target-device');
-      const fileInput = document.getElementById('file-input');
-      const textInput = document.getElementById('text-input');
-      const sendBtn = document.getElementById('send-btn');
-      const sendTextBtn = document.getElementById('send-text-btn');
+    <script type="module">
+      import { io } from './socket.io/socket.io.esm.min.js';
 
-      let lastProgressLine = null;
-      let alertTimeout = null;
+      (() => {
+        'use strict';
 
-      // 字节格式化函数
-      function formatBytes(size) {
-        size = Number(size);
-        if (isNaN(size) || size < 0) return '0B';
+        /* ------------------------------ DOM 引用 ------------------------------ */
+        const $ = (id) => document.getElementById(id);
+        const gateView = $('gate-view');
+        const appView = $('app-view');
+        const nicknameInput = $('nickname-input');
+        const joinCodeInput = $('join-code-input');
+        const createRoomBtn = $('create-room-btn');
+        const joinRoomBtn = $('join-room-btn');
 
-        const units = ['B', 'KB', 'MB', 'GB', 'TB', 'PB', 'EB', 'ZB', 'YB'];
-        let idx = 0;
+        const roomCodeEl = $('room-code');
+        const connStatus = $('conn-status');
+        const connText = $('conn-text');
+        const wakeStatusEl = $('wake-status');
+        const notifyStatusEl = $('notify-status');
+        const installAppBtn = $('install-app-btn');
+        const installAppBtnRoom = $('install-app-btn-room');
+        const memberCountEl = $('member-count');
+        const devicesDiv = $('devices');
+        const leaveRoomBtn = $('leave-room-btn');
+        const copyInviteBtn = $('copy-invite-btn');
+        const showQrBtn = $('show-qr-btn');
 
-        while (size >= 1024 && idx < units.length - 1) {
-          size /= 1024;
-          idx++;
+        const logBox = $('log');
+        const targetSelect = $('target-device');
+        const fileInput = $('file-input');
+        const selectedFilesDiv = $('selected-files');
+        const fileSummary = $('file-summary');
+        const fileSummaryText = $('file-summary-text');
+        const clearFilesBtn = $('clear-files-btn');
+        const textInput = $('text-input');
+        const sendBtn = $('send-btn');
+        const sendTextBtn = $('send-text-btn');
+
+        const transferBox = $('transfer-box');
+        const transferList = $('transfer-list');
+        const transferCount = $('transfer-count');
+
+        const confirmOverlay = $('custom-confirm');
+        const modalTitle = $('modal-title');
+        const modalContent = $('modal-content');
+        const modalConfirmBtn = $('modal-confirm-btn');
+        const modalCancelBtn = $('modal-cancel-btn');
+
+        const qrModal = $('qr-modal');
+        const qrImg = $('qr-img');
+        const qrUrlEl = $('qr-url');
+        const qrCloseBtn = $('qr-close-btn');
+        const qrCopyBtn = $('qr-copy-btn');
+
+        const alertEl = $('custom-alert');
+        const alertIcon = $('alert-icon');
+        const alertText = $('alert-text');
+
+        /* ------------------------------ 本地状态 ------------------------------ */
+        const socket = io({
+          reconnection: true,
+          reconnectionAttempts: Infinity,
+          reconnectionDelay: 500,
+          reconnectionDelayMax: 5000,
+          randomizationFactor: 0.5,
+        });
+
+        let nickname = localStorage.getItem('pipeshare:nickname') || '';
+        let currentRoom = null;
+        let selfId = null;
+        let selfName = '';
+        let joined = false;
+        let connected = false;
+        let pendingJoinCode = null;
+        let alertTimeout = null;
+
+        const MAX_BATCH_FILES = 8;
+        let selectedFiles = [];
+
+        const pendingSends = new Map(); // clientTaskId -> { file, fileName }
+        const taskLabels = new Map(); // clientTaskId / taskToken -> 文件名
+        const incomingBatches = new Map(); // batchId -> { files, total, timer, seen }
+        const transferState = new Map(); // clientTaskId / taskToken -> 进度卡片状态
+
+        let wakeLock = null;
+        let wakeLockWanted = false;
+        let wakeLockRequesting = false;
+        let wakeLockFailed = false;
+
+        let deferredInstallPrompt = null;
+
+        const dialogQueue = [];
+        let activeDialog = null;
+
+        nicknameInput.value = nickname;
+
+        /* ------------------------------ 通用工具 ------------------------------ */
+        function formatBytes(size) {
+          size = Number(size);
+          if (isNaN(size) || size < 0) return '0 B';
+
+          const units = ['B', 'KB', 'MB', 'GB', 'TB', 'PB'];
+          let idx = 0;
+          while (size >= 1024 && idx < units.length - 1) {
+            size /= 1024;
+            idx += 1;
+          }
+          return `${size.toFixed(size >= 100 || idx === 0 ? 0 : 2)} ${units[idx]}`;
         }
 
-        return size.toFixed(2) + units[idx];
-      }
+        function formatDuration(ms) {
+          const value = Number(ms);
+          if (!isFinite(value) || value <= 0) return '';
+          if (value < 1000) return `${Math.max(1, Math.round(value))} ms`;
+          return `${(value / 1000).toFixed(value < 10000 ? 1 : 0)} s`;
+        }
 
-      // Tab 切换逻辑
-      function switchTab(panelId, btn) {
-        document
-          .querySelectorAll('.tab-content')
-          .forEach((p) => p.classList.remove('active'));
-        document
-          .querySelectorAll('.tab-btn')
-          .forEach((b) => b.classList.remove('active'));
-        document.getElementById(panelId).classList.add('active');
-        btn.classList.add('active');
-      }
+        function normalizeCode(raw) {
+          return String(raw || '')
+            .toUpperCase()
+            .replace(/[^A-Z0-9]/g, '')
+            .slice(0, 12);
+        }
 
-      function printLog(msg, type = 'info', isProgress = false) {
-        const emoji = type === 'success' ? '✅' : type === 'error' ? '❌' : '>';
-        const timeStr = `[${new Date().toLocaleTimeString()}]`;
-        const fullText = `${emoji} ${timeStr} ${msg}`;
+        function randomId() {
+          if (window.crypto && crypto.randomUUID) return crypto.randomUUID();
+          return `c_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
+        }
 
-        if (isProgress && lastProgressLine) {
-          // 如果是正在更新的进度条，直接改变 textContent，既安全又高效
-          lastProgressLine.textContent = fullText;
-        } else {
-          const wrapper = document.createElement('div');
-          wrapper.textContent = fullText;
+        function storageGet(key) {
+          try {
+            return localStorage.getItem(key) || '';
+          } catch {
+            return '';
+          }
+        }
 
-          // 根据类型赋予预设颜色
-          if (type === 'error') {
-            wrapper.style.color = '#ff6b6b';
-          } else if (type === 'success') {
-            wrapper.style.color = '#4cd964';
+        function storageSet(key, value) {
+          try {
+            localStorage.setItem(key, value);
+          } catch {
+            /* 隐私模式下可能不可用 */
+          }
+        }
+
+        function storageRemove(key) {
+          try {
+            localStorage.removeItem(key);
+          } catch {
+            /* ignore */
+          }
+        }
+
+        function timeStr() {
+          return new Date().toLocaleTimeString();
+        }
+
+        function trimLog() {
+          while (logBox.childElementCount > 400) {
+            logBox.removeChild(logBox.firstElementChild);
+          }
+        }
+
+        function printLog(msg, type = 'info') {
+          const emoji = type === 'success' ? '✅' : type === 'error' ? '❌' : '>';
+          const line = document.createElement('div');
+          line.textContent = `${emoji} [${timeStr()}] ${msg}`;
+          if (type === 'error') line.style.color = '#ff6b6b';
+          else if (type === 'success') line.style.color = '#4cd964';
+          logBox.appendChild(line);
+          trimLog();
+          logBox.scrollTop = logBox.scrollHeight;
+        }
+
+        /* ---------------------------- 传输进度卡片 ---------------------------- */
+        function createTransferItem(item) {
+          const el = document.createElement('div');
+          el.className = 'transfer-item';
+
+          const head = document.createElement('div');
+          head.className = 'transfer-head';
+          const dirEl = document.createElement('span');
+          dirEl.className = 'transfer-dir';
+          const nameEl = document.createElement('span');
+          nameEl.className = 'transfer-name';
+          const statusEl = document.createElement('span');
+          statusEl.className = 'transfer-status';
+          head.append(dirEl, nameEl, statusEl);
+
+          const track = document.createElement('div');
+          track.className = 'progress-track';
+          const fillEl = document.createElement('div');
+          fillEl.className = 'progress-fill';
+          track.appendChild(fillEl);
+
+          const meta = document.createElement('div');
+          meta.className = 'transfer-meta';
+          const leftEl = document.createElement('span');
+          const rightEl = document.createElement('span');
+          meta.append(leftEl, rightEl);
+
+          el.append(head, track, meta);
+          transferList.appendChild(el);
+
+          item.el = el;
+          item.dirEl = dirEl;
+          item.nameEl = nameEl;
+          item.statusEl = statusEl;
+          item.fillEl = fillEl;
+          item.metaLeftEl = leftEl;
+          item.metaRightEl = rightEl;
+        }
+
+        function getTransfer(key) {
+          return key ? transferState.get(key) : null;
+        }
+
+        function setTransfer(key, patch = {}) {
+          if (!key) return null;
+          let item = transferState.get(key);
+          if (!item) {
+            item = {
+              key,
+              name: '文件',
+              total: 0,
+              loaded: 0,
+              status: '等待确认',
+              direction: 'out',
+              speed: 0,
+              lastAt: 0,
+              lastLoaded: 0,
+              removeTimer: null,
+            };
+            transferState.set(key, item);
+            createTransferItem(item);
           }
 
-          logBox.appendChild(wrapper);
-          lastProgressLine = isProgress ? wrapper : null;
+          if (item.removeTimer) {
+            clearTimeout(item.removeTimer);
+            item.removeTimer = null;
+          }
+          Object.assign(item, patch);
+          renderTransfer(item);
+          updateTransferBox();
+          return item;
         }
-        logBox.scrollTop = logBox.scrollHeight;
-      }
 
-      async function copyText(content) {
-        try {
-          if (navigator.clipboard) {
-            await navigator.clipboard.writeText(content);
+        function renderTransfer(item) {
+          if (!item || !item.el) return;
+          const total = Number(item.total) || 0;
+          const loaded = Math.max(0, Number(item.loaded) || 0);
+          const terminal = item.status === '已完成' || item.status === '已中断' || item.status === '已拒绝';
+          let percent = total > 0 ? Math.min(100, (loaded / total) * 100) : 0;
+          if (item.status === '已完成') percent = 100;
+
+          item.dirEl.textContent = item.direction === 'in' ? '📥' : '📤';
+          item.nameEl.textContent = item.name;
+          item.nameEl.title = item.name;
+          item.statusEl.textContent = item.status;
+          item.fillEl.style.width = `${percent}%`;
+          item.fillEl.classList.toggle('done', item.status === '已完成');
+          item.fillEl.classList.toggle(
+            'error',
+            item.status === '已中断' || item.status === '已拒绝',
+          );
+
+          const sizeText =
+            total > 0
+              ? `${formatBytes(loaded)} / ${formatBytes(total)}`
+              : formatBytes(loaded);
+          item.metaLeftEl.textContent = sizeText;
+          if (item.speed > 0 && !terminal) {
+            item.metaRightEl.textContent = `${formatBytes(item.speed)}/s`;
           } else {
-            throw new Error();
-          }
-        } catch (err) {
-          if (!fallbackCopyText(content)) {
-            throw err;
+            item.metaRightEl.textContent =
+              total > 0 && !terminal
+                ? `${Math.round(percent)}%`
+                : '';
           }
         }
-      }
 
-      function fallbackCopyText(content) {
-        try {
-          const tempDiv = document.createElement('div');
-          const selection = window.getSelection();
-          const range = document.createRange();
+        function updateTransferBytes(key, loaded, total, status) {
+          const item = getTransfer(key);
+          if (!item) return;
+          const now = Date.now();
+          const nextLoaded = Math.max(item.loaded, Number(loaded) || 0);
 
-          tempDiv.textContent = content;
-          tempDiv.style.position = 'fixed';
-          tempDiv.style.opacity = '0';
-          tempDiv.style.pointerEvents = 'none';
+          if (item.lastAt && now > item.lastAt) {
+            const seconds = (now - item.lastAt) / 1000;
+            const delta = nextLoaded - item.lastLoaded;
+            if (seconds >= 0.2 && delta >= 0) {
+              const instant = delta / seconds;
+              item.speed = item.speed > 0
+                ? item.speed * 0.65 + instant * 0.35
+                : instant;
+              item.lastAt = now;
+              item.lastLoaded = nextLoaded;
+            }
+          } else {
+            item.lastAt = now;
+            item.lastLoaded = nextLoaded;
+          }
 
-          document.body.appendChild(tempDiv);
-          range.selectNode(tempDiv);
-          selection.removeAllRanges();
-          selection.addRange(range);
+          item.loaded = nextLoaded;
+          if (Number(total) > 0) item.total = Number(total);
+          if (status) item.status = status;
+          renderTransfer(item);
+        }
 
-          const success = document.execCommand('copy');
-          selection.removeAllRanges();
-          tempDiv.remove();
+        function finishTransfer(key, status, delayMs = 0, loaded) {
+          const item = getTransfer(key);
+          if (!item) return;
+          item.status = status;
+          if (typeof loaded === 'number') item.loaded = loaded;
+          if (status === '已完成' && item.total > 0) item.loaded = item.total;
+          item.speed = 0;
+          renderTransfer(item);
+          if (delayMs > 0) {
+            if (item.removeTimer) clearTimeout(item.removeTimer);
+            item.removeTimer = setTimeout(() => removeTransfer(key), delayMs);
+          }
+        }
 
-          return success;
-        } catch {
+        function removeTransfer(key) {
+          const item = getTransfer(key);
+          if (!item) return;
+          if (item.removeTimer) clearTimeout(item.removeTimer);
+          if (item.el) item.el.remove();
+          transferState.delete(key);
+          updateTransferBox();
+        }
+
+        function updateTransferBox() {
+          const count = transferState.size;
+          transferCount.textContent = `${count} 个`;
+          transferBox.classList.toggle('hidden', count === 0);
+        }
+
+        function clearAllTransfers() {
+          for (const item of transferState.values()) {
+            if (item.removeTimer) clearTimeout(item.removeTimer);
+            if (item.el) item.el.remove();
+          }
+          transferState.clear();
+          updateTransferBox();
+        }
+
+        function hasActiveTransfers() {
+          for (const item of transferState.values()) {
+            if (item.status !== '已完成' && item.status !== '已中断' && item.status !== '已拒绝') {
+              return true;
+            }
+          }
           return false;
         }
-      }
 
-      // ⚙️ 自定义异步 Confirm 函数
-      function showCustomConfirm(title, message) {
-        return new Promise((resolve) => {
-          const overlay = document.getElementById('custom-confirm');
-          const titleEl = document.getElementById('modal-title');
-          const contentEl = document.getElementById('modal-content');
-          const confirmBtn = document.getElementById('modal-confirm-btn');
-          const cancelBtn = document.getElementById('modal-cancel-btn');
-
-          titleEl.textContent = title;
-          contentEl.textContent = message;
-          overlay.classList.add('active');
-
-          function cleanup(result) {
-            overlay.classList.remove('active');
-            confirmBtn.onclick = null;
-            cancelBtn.onclick = null;
-            resolve(result);
+        function taskKey(data) {
+          if (!data) return '';
+          if (data.clientTaskId && transferState.has(data.clientTaskId)) {
+            return data.clientTaskId;
           }
-
-          confirmBtn.onclick = () => cleanup(true);
-          cancelBtn.onclick = () => cleanup(false);
-        });
-      }
-
-      // ⚙️ 自定义自动消失 Alert 函数 (用 `showAlert` 彻底替代 `alert`)
-      function showAlert(message, icon = '💡', duration = 3000) {
-        const alertEl = document.getElementById('custom-alert');
-        const iconEl = document.getElementById('alert-icon');
-        const textEl = document.getElementById('alert-text');
-
-        // 如果当前有正在显示的 alert，立刻清除定时器
-        if (alertTimeout) clearTimeout(alertTimeout);
-
-        iconEl.textContent = icon;
-        textEl.textContent = message;
-        alertEl.classList.add('active');
-
-        // 设置定时自动关闭
-        alertTimeout = setTimeout(() => {
-          alertEl.classList.remove('active');
-        }, duration);
-      }
-
-      socket.on('connect', () => {
-        document.getElementById('my-name').textContent =
-          `我的ID: ${socket.id.substring(0, 4)}`;
-        printLog('成功连接到中转信令服务器');
-      });
-
-      socket.on('transfer-error', (data) => {
-        printLog(data.message, 'error');
-      });
-
-      socket.on('update-room', (clientList) => {
-        const otherDevices = clientList.filter((c) => c.id !== socket.id);
-        const devicesDiv = document.getElementById('devices');
-
-        devicesDiv.textContent = '';
-
-        clientList.forEach((c) => {
-          const item = document.createElement('div');
-          item.className = 'device-item';
-
-          item.textContent = `💻 ${c.name}`;
-          if (c.id === socket.id) {
-            const meTag = document.createElement('strong');
-            meTag.textContent = ' (我)';
-            item.appendChild(meTag);
+          if (data.taskToken && transferState.has(data.taskToken)) {
+            return data.taskToken;
           }
-          devicesDiv.appendChild(item);
-        });
+          return data.clientTaskId || data.taskToken || '';
+        }
 
-        targetSelect.textContent = '';
-        if (otherDevices.length === 0) {
-          const opt = document.createElement('option');
-          opt.value = '';
-          opt.textContent = '当前无其他设备';
-          targetSelect.appendChild(opt);
-        } else {
-          otherDevices.forEach((c) => {
-            const opt = document.createElement('option');
-            opt.value = c.id;
-            opt.textContent = c.name;
-            targetSelect.appendChild(opt);
+        function taskLabel(data) {
+          return (
+            taskLabels.get(data.clientTaskId) ||
+            taskLabels.get(data.taskToken) ||
+            '文件'
+          );
+        }
+
+        function cleanupTask(data, options = {}) {
+          const ids = [data.clientTaskId, data.taskToken].filter(Boolean);
+          ids.forEach((id) => {
+            taskLabels.delete(id);
+            pendingSends.delete(id);
+            if (!options.keepTransfer) removeTransfer(id);
           });
         }
-      });
 
-      // 触发文件发送邀请
-      sendBtn.onclick = () => {
-        const file = fileInput.files[0];
-        const targetId = targetSelect.value;
-        if (!targetId || targetSelect.textContent.includes('无其他设备'))
-          return showAlert('没有可接收的设备！', '⚠️');
-        if (!file) return showAlert('请先选择文件！', '📁');
+        function memberName(id) {
+          const item = devicesDiv.querySelector(`[data-member-id="${id}"]`);
+          return item ? item.dataset.memberName : '对方设备';
+        }
 
-        printLog(`正在向目标设备发送文件 [${file.name}] 的传输邀请...`);
-        socket.emit('file-share-invite', {
-          targetId,
-          fileName: file.name,
-          fileType: file.type,
+        /* ------------------------------ Toast ------------------------------ */
+        function showAlert(message, icon = '💡', duration = 3000) {
+          if (alertTimeout) clearTimeout(alertTimeout);
+          alertIcon.textContent = icon;
+          alertText.textContent = message;
+          alertEl.classList.add('active');
+          alertTimeout = setTimeout(() => {
+            alertEl.classList.remove('active');
+          }, duration);
+        }
+
+        /* ---------------------------- 异步确认框队列 ---------------------------- */
+        function showCustomConfirm(title, message, meta = {}) {
+          return new Promise((resolve) => {
+            dialogQueue.push({ title, message, meta, resolve });
+            if (!activeDialog) nextDialog();
+          });
+        }
+
+        function showInfo(title, message) {
+          return showCustomConfirm(title, message, { info: true });
+        }
+
+        function nextDialog() {
+          if (activeDialog) return;
+          const dialog = dialogQueue.shift();
+          if (!dialog) return;
+
+          activeDialog = dialog;
+          modalTitle.textContent = dialog.title;
+          modalContent.textContent = dialog.message;
+          modalConfirmBtn.textContent =
+            dialog.meta && dialog.meta.info ? '知道了' : '确定';
+          modalCancelBtn.classList.toggle(
+            'hidden',
+            Boolean(dialog.meta && dialog.meta.info),
+          );
+          confirmOverlay.classList.add('active');
+        }
+
+        function finishDialog(result) {
+          if (!activeDialog) return;
+          const dialog = activeDialog;
+          activeDialog = null;
+          confirmOverlay.classList.remove('active');
+          dialog.resolve(result);
+          setTimeout(nextDialog, 150);
+        }
+
+        function dialogTaskTokens(dialog) {
+          const meta = (dialog && dialog.meta) || {};
+          if (Array.isArray(meta.tasks)) return meta.tasks.slice();
+          return meta.taskToken ? [meta.taskToken] : [];
+        }
+
+        function cancelDialogForTask(taskToken) {
+          if (!taskToken) return false;
+
+          if (activeDialog) {
+            const tokens = dialogTaskTokens(activeDialog);
+            if (tokens.includes(taskToken)) {
+              if (Array.isArray(activeDialog.meta.tasks)) {
+                activeDialog.meta.tasks = tokens.filter((t) => t !== taskToken);
+                if (activeDialog.meta.tasks.length === 0) {
+                  finishDialog('cancelled');
+                }
+              } else {
+                finishDialog('cancelled');
+              }
+              return true;
+            }
+          }
+
+          for (let i = 0; i < dialogQueue.length; i += 1) {
+            const dialog = dialogQueue[i];
+            const tokens = dialogTaskTokens(dialog);
+            if (!tokens.includes(taskToken)) continue;
+
+            if (Array.isArray(dialog.meta.tasks)) {
+              dialog.meta.tasks = tokens.filter((t) => t !== taskToken);
+              if (dialog.meta.tasks.length > 0) return true;
+            }
+            dialogQueue.splice(i, 1);
+            dialog.resolve('cancelled');
+            return true;
+          }
+          return false;
+        }
+
+        function cancelAllDialogs() {
+          if (activeDialog) finishDialog('cancelled');
+          while (dialogQueue.length) {
+            dialogQueue.shift().resolve('cancelled');
+          }
+        }
+
+        modalConfirmBtn.onclick = () => finishDialog(true);
+        modalCancelBtn.onclick = () => finishDialog(false);
+
+        // 点击遮罩不关闭（避免误触丢失邀请），仅二维码弹窗支持点击外部关闭
+        qrModal.addEventListener('click', (event) => {
+          if (event.target === qrModal) closeQrModal();
         });
-      };
 
-      // 触发文本发送
-      sendTextBtn.onclick = () => {
-        const text = textInput.value.trim();
-        const targetId = targetSelect.value;
-        if (
-          !targetId ||
-          targetSelect.textContent.includes('无other设备') ||
-          targetSelect.textContent.includes('无其他设备')
-        )
-          return showAlert('没有可接收的设备！', '⚠️');
-        if (!text) return showAlert('请输入需要传输的文本内容！', '📝');
+        /* ---------------------------- 复制到剪贴板 ---------------------------- */
+        function fallbackCopyText(content) {
+          try {
+            const temp = document.createElement('div');
+            const selection = window.getSelection();
+            const range = document.createRange();
 
-        printLog(`正在向目标设备投递文本内容...`);
-        socket.emit('text-share', { targetId, content: text });
-        textInput.value = '';
-      };
+            temp.textContent = content;
+            temp.style.position = 'fixed';
+            temp.style.opacity = '0';
+            temp.style.pointerEvents = 'none';
 
-      // 接收端：收到来自他人的文本
-      socket.on('incoming-text', async (data) => {
-        const { senderName, content } = data;
-        printLog(`收到来自 [${senderName}] 的文本数据!`, 'success');
+            document.body.appendChild(temp);
+            range.selectNode(temp);
+            selection.removeAllRanges();
+            selection.addRange(range);
 
-        const accept = await showCustomConfirm(
-          '📥 收到文本数据',
-          `来自【${senderName}】的文本：\n\n${content}\n\n是否直接复制到剪贴板？`,
-        );
-
-        if (accept) {
-          copyText(content)
-            .then(() => showAlert('已成功复制到系统剪贴板！', '🎉'))
-            .catch(() => showAlert('复制失败，请在日志中手动复制。', '❌'));
-        }
-        printLog(`[文本内容]: ${content}`);
-      });
-
-      socket.on('invite-declined', () => {
-        printLog(`对方拒绝了您的传输邀请。`, 'error');
-      });
-
-      socket.on('start-upload-now', (data) => {
-        const { taskToken } = data;
-        const file = fileInput.files[0];
-        if (!file) return;
-
-        printLog(
-          '收到反馈：对方已成功打通下载管道！开始流式推送数据...',
-          'success',
-        );
-        const xhr = new XMLHttpRequest();
-        xhr.open('POST', `/upload?taskToken=${taskToken}`, true);
-
-        xhr.upload.onprogress = (event) => {
-          if (event.lengthComputable) {
-            const percentComplete = Math.round(
-              (event.loaded / event.total) * 100,
-            );
-            const loadedStr = formatBytes(event.loaded);
-            const totalStr = formatBytes(event.total);
-
-            printLog(
-              `文件正在同步推流中... 进度: ${percentComplete}% (${loadedStr} / ${totalStr})`,
-              'info',
-              true,
-            );
+            const success = document.execCommand('copy');
+            selection.removeAllRanges();
+            temp.remove();
+            return success;
+          } catch {
+            return false;
           }
-        };
+        }
 
-        xhr.onload = () => {
-          if (xhr.status === 200) {
-            printLog('🎉 文件流推送完毕，对方应已下载完成！', 'success');
-            fileInput.value = '';
+        async function copyText(content) {
+          try {
+            if (navigator.clipboard && window.isSecureContext) {
+              await navigator.clipboard.writeText(content);
+              return true;
+            }
+            throw new Error('clipboard unavailable');
+          } catch {
+            return fallbackCopyText(content);
+          }
+        }
+
+        /* ------------------------------ 视图切换 ------------------------------ */
+        function renderWakeStatus() {
+          if (!joined) {
+            wakeStatusEl.classList.add('hidden');
+            return;
+          }
+          wakeStatusEl.classList.remove('hidden');
+
+          if (!('wakeLock' in navigator)) {
+            wakeStatusEl.textContent = '☀️ 常亮不可用';
+            wakeStatusEl.classList.add('offline');
+            wakeStatusEl.title =
+              '当前浏览器或 HTTP 环境不支持屏幕常亮（需要 HTTPS 或 localhost），请保持页面在前台';
+            return;
+          }
+          if (wakeLock) {
+            wakeStatusEl.textContent = '☀️ 页面保持活跃';
+            wakeStatusEl.classList.remove('offline');
+            wakeStatusEl.title = '已启用屏幕常亮，传输期间设备不会自动休眠';
+          } else if (wakeLockFailed) {
+            wakeStatusEl.textContent = '☀️ 常亮不可用';
+            wakeStatusEl.classList.add('offline');
+            wakeStatusEl.title =
+              '浏览器或系统拒绝了屏幕常亮请求，请保持页面在前台，或改用 HTTPS 访问';
           } else {
-            printLog(
-              `传输中断，中转站拒绝了请求: ${xhr.responseText}`,
-              'error',
+            wakeStatusEl.textContent = wakeLockRequesting
+              ? '☀️ 正在保持活跃…'
+              : '☀️ 常亮待恢复';
+            wakeStatusEl.classList.add('offline');
+            wakeStatusEl.title = '页面回到前台后会自动恢复屏幕常亮';
+          }
+        }
+
+        async function acquireWakeLock() {
+          if (
+            !wakeLockWanted ||
+            !joined ||
+            !('wakeLock' in navigator) ||
+            document.visibilityState !== 'visible'
+          ) {
+            renderWakeStatus();
+            return;
+          }
+          if (wakeLock || wakeLockRequesting) {
+            renderWakeStatus();
+            return;
+          }
+
+          wakeLockRequesting = true;
+          wakeLockFailed = false;
+          renderWakeStatus();
+          try {
+            wakeLock = await navigator.wakeLock.request('screen');
+            wakeLockFailed = false;
+            wakeLock.addEventListener('release', () => {
+              wakeLock = null;
+              renderWakeStatus();
+            });
+          } catch {
+            wakeLock = null;
+            wakeLockFailed = true;
+          } finally {
+            wakeLockRequesting = false;
+            renderWakeStatus();
+          }
+        }
+
+        async function releaseWakeLock() {
+          wakeLockWanted = false;
+          if (wakeLock) {
+            const current = wakeLock;
+            wakeLock = null;
+            try {
+              await current.release();
+            } catch {
+              /* 可能已经自动释放 */
+            }
+          }
+          renderWakeStatus();
+        }
+
+        /* ------------------------------ PWA 安装 ------------------------------ */
+        function isStandaloneMode() {
+          return (
+            window.matchMedia('(display-mode: standalone)').matches ||
+            window.navigator.standalone === true
+          );
+        }
+
+        function isIosDevice() {
+          const ua = navigator.userAgent || '';
+          if (/iPad|iPhone|iPod/.test(ua)) return true;
+          return navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1;
+        }
+
+        function updateInstallButtons() {
+          const show =
+            !isStandaloneMode() &&
+            (Boolean(deferredInstallPrompt) || isIosDevice());
+          [installAppBtn, installAppBtnRoom].forEach((button) => {
+            if (button) button.classList.toggle('hidden', !show);
+          });
+        }
+
+        async function promptInstall() {
+          if (deferredInstallPrompt) {
+            const promptEvent = deferredInstallPrompt;
+            deferredInstallPrompt = null;
+            try {
+              promptEvent.prompt();
+              const choice = await promptEvent.userChoice;
+              if (choice && choice.outcome === 'accepted') {
+                showAlert('正在安装 PipeShare…', '📲', 4000);
+              }
+            } catch {
+              showAlert('安装窗口打开失败，请使用浏览器菜单手动安装。', '⚠️', 4000);
+            }
+            updateInstallButtons();
+            return;
+          }
+
+          if (isIosDevice()) {
+            await showInfo(
+              '📲 添加到主屏幕',
+              'iPhone / iPad 需要手动添加：\n\n1. 点击浏览器底部或顶部的「分享」按钮\n2. 向下滚动，选择「添加到主屏幕」\n3. 点击右上角「添加」\n\n添加后从主屏幕图标打开，即可获得独立应用体验。',
+            );
+            return;
+          }
+
+          showAlert(
+            '请使用浏览器菜单中的「安装应用」或「添加到主屏幕」。',
+            '📲',
+            5000,
+          );
+        }
+
+        window.addEventListener('beforeinstallprompt', (event) => {
+          event.preventDefault();
+          deferredInstallPrompt = event;
+          updateInstallButtons();
+        });
+
+        window.addEventListener('appinstalled', () => {
+          deferredInstallPrompt = null;
+          updateInstallButtons();
+          showAlert('PipeShare 已安装到设备！', '🎉', 4000);
+        });
+
+        if (window.matchMedia) {
+          const standaloneQuery = window.matchMedia('(display-mode: standalone)');
+          if (standaloneQuery.addEventListener) {
+            standaloneQuery.addEventListener('change', updateInstallButtons);
+          }
+        }
+
+        [installAppBtn, installAppBtnRoom].forEach((button) => {
+          if (button) button.onclick = promptInstall;
+        });
+
+        // Service Worker 只在 HTTPS / localhost 下注册，用于 PWA 安装与离线外壳
+        if ('serviceWorker' in navigator && window.isSecureContext) {
+          window.addEventListener('load', () => {
+            navigator.serviceWorker
+              .register(new URL('sw.js', window.location.href).href)
+              .catch(() => {
+                /* 离线能力不可用时不影响主功能 */
+              });
+          });
+        }
+
+        /* ------------------------------ 系统通知 ------------------------------ */
+        function notificationsSupported() {
+          return 'Notification' in window && window.isSecureContext;
+        }
+
+        function isPageActive() {
+          // 页面可见且窗口处于焦点状态时，用户已经能看到页面提示，不再重复弹系统通知
+          return (
+            document.visibilityState === 'visible' && document.hasFocus()
+          );
+        }
+
+        function renderNotifyStatus() {
+          if (!joined) {
+            notifyStatusEl.classList.add('hidden');
+            return;
+          }
+          notifyStatusEl.classList.remove('hidden');
+          notifyStatusEl.classList.remove('on', 'off');
+
+          if (!notificationsSupported()) {
+            notifyStatusEl.textContent = '🔕 通知不可用';
+            notifyStatusEl.classList.add('off');
+            notifyStatusEl.title =
+              '系统通知需要 HTTPS 或 localhost 环境，请使用 HTTPS 访问';
+            return;
+          }
+
+          if (Notification.permission === 'granted') {
+            notifyStatusEl.textContent = '🔔 通知已开启';
+            notifyStatusEl.classList.add('on');
+            notifyStatusEl.title =
+              '页面不在前台时，收到文本或文件会弹出系统通知；点击通知可回到当前页面';
+          } else if (Notification.permission === 'denied') {
+            notifyStatusEl.textContent = '🔕 通知被拒绝';
+            notifyStatusEl.classList.add('off');
+            notifyStatusEl.title =
+              '通知权限已被拒绝，请在浏览器站点设置中重新允许';
+          } else {
+            notifyStatusEl.textContent = '🔔 开启通知';
+            notifyStatusEl.classList.add('off');
+            notifyStatusEl.title = '点击授权系统通知，收到消息时会弹出提醒';
+          }
+        }
+
+        async function requestNotificationPermission({ interactive = true } = {}) {
+          if (!notificationsSupported()) {
+            if (interactive) {
+              showAlert('系统通知需要 HTTPS 或 localhost 环境。', '🔕', 5000);
+            }
+            renderNotifyStatus();
+            return false;
+          }
+
+          if (Notification.permission === 'granted') {
+            if (interactive) showAlert('系统通知已开启。', '🔔');
+            renderNotifyStatus();
+            return true;
+          }
+
+          if (Notification.permission === 'denied') {
+            if (interactive) {
+              showAlert(
+                '通知权限已被拒绝，请在浏览器的站点设置中重新允许。',
+                '🔕',
+                5000,
+              );
+            }
+            renderNotifyStatus();
+            return false;
+          }
+
+          try {
+            const permission = await Notification.requestPermission();
+            renderNotifyStatus();
+            if (permission === 'granted') {
+              if (interactive) showAlert('系统通知已开启！', '🔔');
+              return true;
+            }
+            if (interactive) showAlert('未开启系统通知。', '🔕', 3000);
+          } catch {
+            if (interactive) showAlert('无法获取通知权限。', '⚠️', 3000);
+          }
+          return Notification.permission === 'granted';
+        }
+
+        async function showSystemNotification(title, options = {}) {
+          if (
+            !notificationsSupported() ||
+            Notification.permission !== 'granted' ||
+            isPageActive()
+          ) {
+            return false;
+          }
+
+          const iconUrl = new URL('icons/icon-192.png', window.location.href).href;
+          const payload = {
+            body: String(options.body || '').slice(0, 200),
+            icon: iconUrl,
+            lang: 'zh-CN',
+            data: { url: window.location.href },
+          };
+          if (options.tag) payload.tag = String(options.tag).slice(0, 64);
+
+          try {
+            const registration =
+              'serviceWorker' in navigator
+                ? await navigator.serviceWorker.getRegistration()
+                : null;
+
+            if (registration && typeof registration.showNotification === 'function') {
+              await registration.showNotification(title, payload);
+              return true;
+            }
+
+            if (typeof Notification === 'function') {
+              const note = new Notification(title, payload);
+              note.onclick = () => {
+                note.close();
+                window.focus();
+              };
+              return true;
+            }
+          } catch {
+            /* 通知失败不影响主功能 */
+          }
+          return false;
+        }
+
+        notifyStatusEl.onclick = () => requestNotificationPermission();
+
+        document.addEventListener('visibilitychange', () => {
+          if (document.visibilityState === 'visible') {
+            renderNotifyStatus();
+          }
+        });
+        window.addEventListener('focus', renderNotifyStatus);
+
+        function setConnectionState(online) {
+          connected = online;
+          if (online) {
+            connStatus.classList.remove('offline');
+            connText.textContent = '已连接';
+          } else {
+            connStatus.classList.add('offline');
+            connText.textContent = '重连中…';
+          }
+          refreshSendButtons();
+        }
+
+        function refreshSendButtons() {
+          const hasTarget = Boolean(targetSelect.value);
+          sendBtn.disabled =
+            !connected || !hasTarget || selectedFiles.length === 0;
+          sendTextBtn.disabled = !connected || !hasTarget;
+        }
+
+        function showGate() {
+          appView.classList.add('hidden');
+          gateView.classList.remove('hidden');
+          joined = false;
+          currentRoom = null;
+          selfId = null;
+          selfName = '';
+          cancelAllDialogs();
+          pendingSends.clear();
+          taskLabels.clear();
+          incomingBatches.forEach((batch) => {
+            if (batch.timer) clearTimeout(batch.timer);
+          });
+          incomingBatches.clear();
+          clearAllTransfers();
+          selectedFiles = [];
+          renderSelectedFiles();
+          releaseWakeLock();
+          renderNotifyStatus();
+          closeQrModal();
+        }
+
+        function showApp() {
+          gateView.classList.add('hidden');
+          appView.classList.remove('hidden');
+        }
+
+        function resetToGate(message, icon) {
+          showGate();
+          clearRoomInUrl();
+          if (message) showAlert(message, icon || '👋');
+          joinCodeInput.value = '';
+        }
+
+        function setRoomInUrl(code) {
+          try {
+            const url = new URL(window.location.href);
+            url.searchParams.set('room', code);
+            window.history.replaceState(null, '', url);
+          } catch {
+            /* 忽略隐私模式等环境限制 */
+          }
+        }
+
+        function clearRoomInUrl() {
+          try {
+            const url = new URL(window.location.href);
+            if (!url.searchParams.has('room')) return;
+            url.searchParams.delete('room');
+            window.history.replaceState(null, '', url);
+          } catch {
+            /* ignore */
+          }
+        }
+
+        function inviteUrl(code = currentRoom) {
+          const url = new URL(window.location.href);
+          url.search = '';
+          url.hash = '';
+          url.searchParams.set('room', code);
+          return url.toString();
+        }
+
+        function closeQrModal() {
+          qrModal.classList.remove('active');
+          qrImg.removeAttribute('src');
+        }
+
+        /* ------------------------------ 房间渲染 ------------------------------ */
+        function renderMembers(members) {
+          devicesDiv.textContent = '';
+
+          if (!Array.isArray(members) || members.length === 0) {
+            const empty = document.createElement('div');
+            empty.className = 'device-empty';
+            empty.textContent = '房间里还没有其他设备，邀请好友扫码加入吧。';
+            devicesDiv.appendChild(empty);
+          }
+
+          // 同名设备自动追加短 ID，避免选择接收目标时产生歧义
+          const nameCounts = new Map();
+          members.forEach((member) => {
+            nameCounts.set(member.name, (nameCounts.get(member.name) || 0) + 1);
+          });
+          const labelOf = (member) =>
+            nameCounts.get(member.name) > 1
+              ? `${member.name} (#${member.id.substring(0, 4)})`
+              : member.name;
+
+          members.forEach((member) => {
+            const item = document.createElement('div');
+            item.className = 'device-item';
+            item.dataset.memberId = member.id;
+            item.dataset.memberName = labelOf(member);
+
+            const nameSpan = document.createElement('span');
+            nameSpan.textContent = `💻 ${labelOf(member)}`;
+            if (member.id === selfId || member.id === socket.id) {
+              const badge = document.createElement('span');
+              badge.className = 'self-badge';
+              badge.textContent = '我';
+              nameSpan.appendChild(badge);
+            }
+            item.appendChild(nameSpan);
+            devicesDiv.appendChild(item);
+          });
+
+          const others = members.filter(
+            (m) => m.id !== selfId && m.id !== socket.id,
+          );
+          memberCountEl.textContent = `${members.length} 台`;
+
+          const previous = targetSelect.value;
+          targetSelect.textContent = '';
+
+          if (others.length === 0) {
+            const opt = document.createElement('option');
+            opt.value = '';
+            opt.textContent = '房间内暂无其他设备';
+            targetSelect.appendChild(opt);
+          } else {
+            others.forEach((member) => {
+              const opt = document.createElement('option');
+              opt.value = member.id;
+              opt.textContent = labelOf(member);
+              targetSelect.appendChild(opt);
+            });
+            if (previous && others.some((m) => m.id === previous)) {
+              targetSelect.value = previous;
+            }
+          }
+
+          refreshSendButtons();
+        }
+
+        /* ------------------------------ Tab 切换 ------------------------------ */
+        document.querySelectorAll('.tab-btn').forEach((btn) => {
+          btn.onclick = () => {
+            document
+              .querySelectorAll('.tab-content')
+              .forEach((panel) => panel.classList.remove('active'));
+            document
+              .querySelectorAll('.tab-btn')
+              .forEach((item) => item.classList.remove('active'));
+            $(btn.dataset.panel).classList.add('active');
+            btn.classList.add('active');
+          };
+        });
+
+        /* ------------------------------ 连接生命周期 ------------------------------ */
+        socket.on('connect', () => {
+          setConnectionState(true);
+          printLog('成功连接到中转信令服务器', 'success');
+
+          if (currentRoom) {
+            printLog(`连接已恢复，正在重新进入房间 ${currentRoom}…`);
+            socket.emit('room:join', {
+              roomCode: currentRoom,
+              nickname: nickname || selfName,
+            });
+          } else if (pendingJoinCode) {
+            socket.emit('room:join', {
+              roomCode: pendingJoinCode,
+              nickname: nickname || undefined,
+            });
+            pendingJoinCode = null;
+          }
+        });
+
+        socket.on('disconnect', (reason) => {
+          setConnectionState(false);
+          printLog('与服务器的连接已断开，正在自动重连…', 'error');
+          cancelAllDialogs();
+          pendingSends.clear();
+          taskLabels.clear();
+          incomingBatches.forEach((batch) => {
+            if (batch.timer) clearTimeout(batch.timer);
+          });
+          incomingBatches.clear();
+          clearAllTransfers();
+
+          if (
+            reason !== 'io client disconnect' &&
+            reason !== 'io server disconnect'
+          ) {
+            showAlert('连接中断，正在自动重连…', '📡', 4000);
+          }
+        });
+
+        socket.on('connect_error', () => {
+          setConnectionState(false);
+        });
+
+        /* ------------------------------ 房间事件 ------------------------------ */
+        socket.on('room:joined', (data) => {
+          currentRoom = data.code;
+          selfId = data.selfId;
+          selfName = data.selfName;
+          joined = true;
+          pendingJoinCode = null;
+
+          roomCodeEl.textContent = data.code;
+          setRoomInUrl(data.code);
+          renderMembers(data.members);
+          showApp();
+          setConnectionState(socket.connected);
+          wakeLockWanted = true;
+          acquireWakeLock();
+          renderNotifyStatus();
+          printLog(`已进入私有房间 ${data.code}`, 'success');
+        });
+
+        socket.on('room:update', (data) => {
+          if (!currentRoom || data.code !== currentRoom) return;
+          renderMembers(data.members);
+        });
+
+        socket.on('room:left', () => {
+          resetToGate('已退出房间。', '👋');
+        });
+
+        socket.on('room:error', (data) => {
+          const message = (data && data.message) || '进入房间失败。';
+          printLog(message, 'error');
+          showAlert(message, '⚠️', 4000);
+          pendingJoinCode = null;
+
+          // 重连时房间已过期 / 已满，或邀请码无效：退回入口页并保留房间码方便重试
+          const retryCode = (data && data.code) || joinCodeInput.value;
+          showGate();
+          clearRoomInUrl();
+          joinCodeInput.value = retryCode || '';
+        });
+
+        socket.on('server:ready', () => {
+          /* 预留：服务端能力探测 */
+        });
+
+        /* ------------------------------ 创建 / 加入房间 ------------------------------ */
+        createRoomBtn.onclick = () => {
+          if (!socket.connected) {
+            return showAlert('尚未连接到服务器，请稍候…', '📡');
+          }
+          void requestNotificationPermission({ interactive: false });
+          const name = nicknameInput.value.trim();
+          nickname = name;
+          if (name) storageSet('pipeshare:nickname', name);
+          else storageRemove('pipeshare:nickname');
+
+          createRoomBtn.disabled = true;
+          socket.emit('room:create', { nickname: name || undefined });
+          setTimeout(() => {
+            createRoomBtn.disabled = false;
+          }, 1200);
+        };
+
+        function joinRoom(code) {
+          const normalized = normalizeCode(code);
+          if (!normalized) {
+            return showAlert('请输入房间码。', '⌨️');
+          }
+          if (!socket.connected) {
+            pendingJoinCode = normalized;
+            return showAlert('尚未连接到服务器，连接后将自动加入。', '📡');
+          }
+
+          const name = nicknameInput.value.trim();
+          nickname = name;
+          if (name) storageSet('pipeshare:nickname', name);
+          else storageRemove('pipeshare:nickname');
+
+          socket.emit('room:join', {
+            roomCode: normalized,
+            nickname: name || undefined,
+          });
+          joinCodeInput.value = normalized;
+        }
+
+        joinRoomBtn.onclick = () => {
+          void requestNotificationPermission({ interactive: false });
+          joinRoom(joinCodeInput.value);
+        };
+        joinCodeInput.addEventListener('keydown', (event) => {
+          if (event.key === 'Enter') joinRoomBtn.click();
+        });
+        joinCodeInput.addEventListener('input', () => {
+          const pos = joinCodeInput.selectionStart;
+          joinCodeInput.value = normalizeCode(joinCodeInput.value);
+          joinCodeInput.setSelectionRange(pos, pos);
+        });
+
+        leaveRoomBtn.onclick = async () => {
+          const hasActive = pendingSends.size > 0 || hasActiveTransfers();
+          if (hasActive) {
+            const ok = await showCustomConfirm(
+              '确认退出房间',
+              '退出房间会中断所有进行中的传输，确定要退出吗？',
+            );
+            if (!ok) return;
+          }
+          if (!socket.connected) {
+            resetToGate('已退出房间。', '👋');
+            return;
+          }
+          socket.emit('room:leave');
+        };
+
+        /* ------------------------------ 邀请 / 二维码 ------------------------------ */
+        copyInviteBtn.onclick = async () => {
+          if (!currentRoom) return;
+          const url = inviteUrl();
+          const ok = await copyText(url);
+          showAlert(
+            ok ? '邀请链接已复制，发给好友即可加入！' : '复制失败，请手动复制。',
+            ok ? '🔗' : '❌',
+          );
+        };
+
+        showQrBtn.onclick = () => {
+          if (!currentRoom) return;
+          const url = inviteUrl();
+          qrUrlEl.textContent = url;
+          // 服务端生成 SVG，内网无外网也能扫码
+          qrImg.src = `/api/qr?text=${encodeURIComponent(url)}`;
+          qrModal.classList.add('active');
+        };
+
+        qrCloseBtn.onclick = closeQrModal;
+        qrCopyBtn.onclick = async () => {
+          const ok = await copyText(qrUrlEl.textContent || '');
+          showAlert(ok ? '邀请链接已复制！' : '复制失败，请手动复制。', '🔗');
+        };
+
+        /* ------------------------------ 文本发送 ------------------------------ */
+        sendTextBtn.onclick = () => {
+          const text = textInput.value.trim();
+          const targetId = targetSelect.value;
+
+          if (!joined) return showAlert('请先加入一个房间。', '🔒');
+          if (!connected) return showAlert('连接已断开，正在重连…', '📡');
+          if (!targetId) return showAlert('房间内还没有其他设备。', '⚠️');
+          if (!text) return showAlert('请输入需要传输的文本内容。', '📝');
+
+          socket.emit('text-share', { targetId, content: text });
+          printLog(`正在向 [${memberName(targetId)}] 投递文本内容…`);
+          textInput.value = '';
+        };
+
+        /* ------------------------------ 文件发送 ------------------------------ */
+        function renderSelectedFiles() {
+          selectedFilesDiv.textContent = '';
+          const totalSize = selectedFiles.reduce(
+            (sum, file) => sum + (Number(file.size) || 0),
+            0,
+          );
+
+          fileSummary.classList.toggle('hidden', selectedFiles.length === 0);
+          if (selectedFiles.length > 0) {
+            fileSummaryText.textContent = `已选择 ${selectedFiles.length} 个文件，共 ${formatBytes(totalSize)}`;
+          }
+
+          selectedFiles.forEach((file, index) => {
+            const item = document.createElement('div');
+            item.className = 'file-item';
+
+            const info = document.createElement('div');
+            info.className = 'file-info';
+            const name = document.createElement('span');
+            name.className = 'file-name';
+            name.textContent = file.name;
+            name.title = file.name;
+            const size = document.createElement('span');
+            size.className = 'file-size';
+            size.textContent = formatBytes(file.size);
+            info.append(name, size);
+
+            const remove = document.createElement('button');
+            remove.type = 'button';
+            remove.className = 'file-remove';
+            remove.textContent = '✕';
+            remove.title = '移除';
+            remove.setAttribute('aria-label', `移除 ${file.name}`);
+            remove.addEventListener('click', () => {
+              selectedFiles.splice(index, 1);
+              renderSelectedFiles();
+            });
+
+            item.append(info, remove);
+            selectedFilesDiv.appendChild(item);
+          });
+
+          sendBtn.textContent =
+            selectedFiles.length > 1
+              ? `⚡ 发送 ${selectedFiles.length} 个文件`
+              : '⚡ 发起文件快传';
+          refreshSendButtons();
+        }
+
+        fileInput.addEventListener('change', () => {
+          const incoming = Array.from(fileInput.files || []);
+          // 立即清空原生 input，允许再次选择同一个文件；File 对象已经保存在内存里
+          fileInput.value = '';
+          if (incoming.length === 0) return;
+
+          let added = 0;
+          let duplicateCount = 0;
+          let limitHit = false;
+
+          for (const file of incoming) {
+            if (selectedFiles.length >= MAX_BATCH_FILES) {
+              limitHit = true;
+              break;
+            }
+            const duplicate = selectedFiles.some(
+              (item) =>
+                item.name === file.name &&
+                item.size === file.size &&
+                item.lastModified === file.lastModified,
+            );
+            if (duplicate) {
+              duplicateCount += 1;
+              continue;
+            }
+            selectedFiles.push(file);
+            added += 1;
+          }
+
+          if (limitHit) {
+            showAlert(`单次最多选择 ${MAX_BATCH_FILES} 个文件。`, '⚠️', 4000);
+          } else if (duplicateCount > 0) {
+            showAlert('已忽略重复选择的文件。', '💡');
+          } else if (added > 1) {
+            printLog(`已选择 ${added} 个文件，可一次发送。`);
+          }
+          renderSelectedFiles();
+        });
+
+        clearFilesBtn.onclick = () => {
+          selectedFiles = [];
+          renderSelectedFiles();
+        };
+
+        sendBtn.onclick = () => {
+          const targetId = targetSelect.value;
+
+          if (!joined) return showAlert('请先加入一个房间。', '🔒');
+          if (!connected) return showAlert('连接已断开，正在重连…', '📡');
+          if (!targetId) return showAlert('房间内还没有其他设备。', '⚠️');
+          if (selectedFiles.length === 0) {
+            return showAlert('请先选择文件。', '📁');
+          }
+
+          const files = selectedFiles.slice(0, MAX_BATCH_FILES);
+          const batchId = files.length > 1 ? randomId() : '';
+          const batchTotal = files.length;
+          const targetName = memberName(targetId);
+
+          files.forEach((file, index) => {
+            const clientTaskId = randomId();
+            // 文件对象保存在内存里，后续推流靠 clientTaskId 精确匹配，
+            // 即使用户立刻改选别的文件也不会串包。
+            pendingSends.set(clientTaskId, { file, fileName: file.name });
+            taskLabels.set(clientTaskId, file.name);
+            setTransfer(clientTaskId, {
+              name: file.name,
+              total: file.size,
+              loaded: 0,
+              status: '等待确认',
+              direction: 'out',
+            });
+
+            socket.emit('file-share-invite', {
+              targetId,
+              fileName: file.name,
+              fileType: file.type,
+              fileSize: file.size,
+              clientTaskId,
+              batchId,
+              batchTotal,
+              batchIndex: index + 1,
+            });
+          });
+
+          printLog(
+            files.length > 1
+              ? `已向 [${targetName}] 发起 ${files.length} 个文件的传输邀请。`
+              : `正在向 [${targetName}] 发起文件传输邀请：${files[0].name}`,
+          );
+
+          selectedFiles = [];
+          renderSelectedFiles();
+        };
+
+        /* ------------------------------ 传输事件 ------------------------------ */
+        socket.on('incoming-text', async (data) => {
+          const senderName = data.senderName || '未知设备';
+          const content = data.content || '';
+          printLog(`收到来自 [${senderName}] 的文本数据！`, 'success');
+
+          void showSystemNotification(`📥 收到 ${senderName} 的文本`, {
+            body: content.length > 120 ? `${content.slice(0, 120)}…` : content,
+            tag: `text-${data.senderId || 'unknown'}-${Date.now()}`,
+          });
+
+          const accept = await showCustomConfirm(
+            '📥 收到文本数据',
+            `来自【${senderName}】的文本：\n\n${content}\n\n是否复制到剪贴板？`,
+          );
+
+          if (accept === true) {
+            const ok = await copyText(content);
+            showAlert(
+              ok ? '已复制到系统剪贴板！' : '复制失败，请在日志中手动复制。',
+              ok ? '🎉' : '❌',
             );
           }
-        };
-        xhr.onerror = () =>
-          printLog('推流发生致命错误，网络连接中断。', 'error');
-        xhr.send(file);
-      });
+          printLog(`[文本内容] ${content}`);
+        });
 
-      // 接收端：收到新文件接收请求
-      socket.on('incoming-file', async (data) => {
-        const { taskToken, fileName, fileType, senderName } = data;
-        printLog(`收到来自 [${senderName}] 的新文件邀请: ${fileName}`);
+        /* ------------------------ 接收端：批量邀请聚合 ------------------------ */
+        function queueIncomingFile(data) {
+          const batchId = data.batchId || `single:${data.taskToken}`;
+          const total = Math.max(1, Number(data.batchTotal) || 1);
 
-        const accept = await showCustomConfirm(
-          '📁 收到文件传输邀请',
-          `【${senderName}】想给你发送一个文件：\n\n名称: ${fileName}\n\n是否接收并建立实时流下载？`,
-        );
+          let batch = incomingBatches.get(batchId);
+          if (!batch) {
+            batch = { files: [], total, timer: null, seen: new Set() };
+            incomingBatches.set(batchId, batch);
+          }
+          if (batch.seen.has(data.taskToken)) return;
 
-        if (accept) {
-          printLog('已同意接收，正在向服务器请求挂载下载流...');
-          const dlUrl = `/download?taskToken=${taskToken}&fileName=${encodeURIComponent(fileName)}&fileType=${encodeURIComponent(fileType)}`;
-          const a = document.createElement('a');
-          a.style.display = 'none';
-          a.href = dlUrl;
-          if (fileName) a.download = fileName;
-          document.body.appendChild(a);
-          a.click();
-          setTimeout(() => a.remove(), 1500);
-        } else {
-          printLog('拒绝了对方的文件传输邀请。');
-          socket.emit('file-share-decline', { taskToken });
+          batch.seen.add(data.taskToken);
+          batch.total = Math.max(batch.total, total);
+          batch.files.push(data);
+
+          taskLabels.set(data.clientTaskId, data.fileName);
+          taskLabels.set(data.taskToken, data.fileName);
+          setTransfer(data.clientTaskId || data.taskToken, {
+            name: data.fileName,
+            total: data.fileSize,
+            loaded: 0,
+            status: '等待确认',
+            direction: 'in',
+          });
+
+          if (batch.timer) clearTimeout(batch.timer);
+          if (batch.files.length >= batch.total) {
+            flushIncomingBatch(batchId);
+          } else {
+            // 如果服务端拒绝了其中某个文件，收到的数量可能少于 batchTotal，
+            // 500ms 后按实际收到的文件数兜底展示。
+            batch.timer = setTimeout(() => flushIncomingBatch(batchId), 500);
+          }
         }
-      });
+
+        async function startIncomingDownload(data) {
+          const { taskToken, clientTaskId, fileName, fileType } = data;
+          const key = clientTaskId || taskToken;
+
+          // 下载前预检，避免失败时浏览器把错误文字保存成文件
+          try {
+            const check = await fetch(
+              `/api/task-status?taskToken=${encodeURIComponent(taskToken)}`,
+              { cache: 'no-store' },
+            );
+            if (!check.ok) {
+              const info = await check.json().catch(() => ({}));
+              const reason =
+                info.message || '传输任务已失效，请让对方重新发送。';
+              printLog(`${fileName}：${reason}`, 'error');
+              finishTransfer(key, '已中断', 3000);
+              cleanupTask(
+                { clientTaskId, taskToken },
+                { keepTransfer: true },
+              );
+              return false;
+            }
+          } catch {
+            // 预检请求失败时不阻塞下载，交给下载请求自己反馈
+          }
+
+          const dlUrl = `/download?taskToken=${encodeURIComponent(taskToken)}&fileName=${encodeURIComponent(fileName)}&fileType=${encodeURIComponent(fileType || '')}`;
+          const link = document.createElement('a');
+          link.style.display = 'none';
+          link.href = dlUrl;
+          if (fileName) link.download = fileName;
+          document.body.appendChild(link);
+          link.click();
+          setTimeout(() => link.remove(), 1500);
+
+          // 某些浏览器会拦截非直接点击触发的下载，额外提供手动入口
+          const fallbackLine = document.createElement('div');
+          fallbackLine.textContent = `> [${timeStr()}] ${fileName} 未自动下载？`;
+          const manualLink = document.createElement('a');
+          manualLink.href = dlUrl;
+          manualLink.textContent = '点此手动下载';
+          manualLink.style.color = '#7dd3fc';
+          manualLink.rel = 'noopener';
+          fallbackLine.appendChild(manualLink);
+          logBox.appendChild(fallbackLine);
+          trimLog();
+          logBox.scrollTop = logBox.scrollHeight;
+          return true;
+        }
+
+        async function flushIncomingBatch(batchId) {
+          const batch = incomingBatches.get(batchId);
+          if (!batch) return;
+          if (batch.timer) {
+            clearTimeout(batch.timer);
+            batch.timer = null;
+          }
+          incomingBatches.delete(batchId);
+
+          const files = batch.files.slice();
+          if (files.length === 0) return;
+
+          const senderName = files[0].senderName || '未知设备';
+          const totalSize = files.reduce(
+            (sum, file) => sum + (Number(file.fileSize) || 0),
+            0,
+          );
+          const isMulti = files.length > 1;
+          const listText = files
+            .map(
+              (file, index) =>
+                `${index + 1}. ${file.fileName}（${
+                  file.fileSize ? formatBytes(file.fileSize) : '未知大小'
+                }）`,
+            )
+            .join('\n');
+
+          const title = isMulti
+            ? `📁 收到 ${files.length} 个文件`
+            : '📁 收到文件传输邀请';
+          const message = isMulti
+            ? `来自【${senderName}】的 ${files.length} 个文件：\n\n${listText}\n\n合计 ${formatBytes(totalSize)}\n\n接收后将依次开始下载。若浏览器提示“允许下载多个文件”，请点击允许。`
+            : `【${senderName}】想给你发送一个文件：\n\n名称：${files[0].fileName}\n大小：${
+                files[0].fileSize
+                  ? formatBytes(files[0].fileSize)
+                  : '未知大小'
+              }\n\n接收后将立即开始流式下载。`;
+
+          printLog(
+            isMulti
+              ? `收到来自 [${senderName}] 的 ${files.length} 个文件邀请。`
+              : `收到来自 [${senderName}] 的文件邀请：${files[0].fileName}`,
+          );
+
+          void showSystemNotification(
+            isMulti
+              ? `📥 收到 ${files.length} 个文件`
+              : '📥 收到文件传输邀请',
+            {
+              body: isMulti
+                ? `${senderName} 发来 ${files.length} 个文件：${listText.replace(/\n/g, '、')}`
+                : `${senderName} 发来文件：${files[0].fileName}`,
+              tag: `files-${batchId}`,
+            },
+          );
+
+          const accept = await showCustomConfirm(title, message, {
+            tasks: files.map((file) => file.taskToken),
+            batchId,
+          });
+
+          if (accept === 'cancelled') {
+            files.forEach((file) => {
+              taskLabels.delete(file.clientTaskId);
+              taskLabels.delete(file.taskToken);
+              const key = file.clientTaskId || file.taskToken;
+              if (getTransfer(key)) {
+                finishTransfer(key, '已中断', 2500);
+              }
+            });
+            return;
+          }
+
+          if (accept !== true) {
+            files.forEach((file) => {
+              socket.emit('file-share-decline', {
+                taskToken: file.taskToken,
+              });
+              const key = file.clientTaskId || file.taskToken;
+              if (getTransfer(key)) {
+                finishTransfer(key, '已拒绝', 1500);
+              }
+              cleanupTask(
+                { clientTaskId: file.clientTaskId, taskToken: file.taskToken },
+                { keepTransfer: true },
+              );
+            });
+            printLog(
+              isMulti
+                ? `已拒绝 ${files.length} 个文件。`
+                : '已拒绝对方的文件传输邀请。',
+            );
+            return;
+          }
+
+          printLog(
+            isMulti
+              ? `已同意接收 ${files.length} 个文件，开始建立下载…`
+              : '已同意接收，正在建立下载通道…',
+          );
+
+          let started = 0;
+          for (const file of files) {
+            const key = file.clientTaskId || file.taskToken;
+            setTransfer(key, { status: '接收中', direction: 'in' });
+            if (await startIncomingDownload(file)) started += 1;
+            if (files.length > 1) {
+              // 多个下载之间略微错开，兼容浏览器对连续自动下载的限制
+              await new Promise((resolve) => setTimeout(resolve, 220));
+            }
+          }
+
+          if (started === 0) {
+            showAlert('文件下载未能启动，请让对方重新发送。', '⚠️', 4000);
+          }
+        }
+
+        socket.on('incoming-file', (data) => {
+          queueIncomingFile(data);
+        });
+
+        socket.on('invite-cancelled', (data) => {
+          const { taskToken, clientTaskId } = data || {};
+          cancelDialogForTask(taskToken);
+
+          if (clientTaskId) taskLabels.delete(clientTaskId);
+          if (taskToken) taskLabels.delete(taskToken);
+
+          const key = clientTaskId || taskToken;
+          if (key && getTransfer(key)) {
+            const item = getTransfer(key);
+            if (item.status === '等待确认') {
+              finishTransfer(key, '已中断', 2500);
+            } else {
+              removeTransfer(key);
+            }
+          }
+          // 具体原因由 transfer-error 统一提示，避免重复日志
+        });
+
+        socket.on('start-upload-now', (data) => {
+          const { taskToken, clientTaskId } = data;
+          const pending = pendingSends.get(clientTaskId);
+
+          if (!pending) {
+            printLog('收到推流指令，但本地文件上下文已丢失，已取消该任务。', 'error');
+            socket.emit('file-share-cancel', { taskToken });
+            return;
+          }
+
+          const { file, fileName } = pending;
+          setTransfer(clientTaskId, {
+            name: fileName,
+            total: file.size,
+            loaded: 0,
+            status: '推送中',
+            direction: 'out',
+          });
+          printLog(`对方已同意，开始推送文件流：${fileName}`, 'success');
+
+          const xhr = new XMLHttpRequest();
+          xhr.open('POST', `/upload?taskToken=${encodeURIComponent(taskToken)}`, true);
+
+          xhr.upload.onprogress = (event) => {
+            if (!event.lengthComputable) return;
+            updateTransferBytes(
+              clientTaskId,
+              event.loaded,
+              event.total,
+              '推送中',
+            );
+          };
+
+          xhr.onload = () => {
+            if (xhr.status === 200) {
+              // 完成状态统一由 transfer-complete 更新
+              return;
+            }
+            let detail = xhr.responseText;
+            try {
+              detail = JSON.parse(xhr.responseText).error || detail;
+            } catch {
+              /* 保持纯文本 */
+            }
+            printLog(`传输中断：${detail || `HTTP ${xhr.status}`}`, 'error');
+            finishTransfer(clientTaskId, '已中断', 4000);
+            cleanupTask({ taskToken, clientTaskId }, { keepTransfer: true });
+          };
+          xhr.onerror = () => {
+            printLog('推流发生网络错误，连接可能已中断。', 'error');
+            finishTransfer(clientTaskId, '已中断', 4000);
+            cleanupTask({ taskToken, clientTaskId }, { keepTransfer: true });
+          };
+          xhr.ontimeout = () => {
+            printLog('推流超时，已中断。', 'error');
+            finishTransfer(clientTaskId, '已中断', 4000);
+            cleanupTask({ taskToken, clientTaskId }, { keepTransfer: true });
+          };
+
+          xhr.send(file);
+        });
+
+        socket.on('transfer-progress', (data) => {
+          const key = taskKey(data);
+          if (!key) return;
+          const item = getTransfer(key);
+          if (!item) return;
+          updateTransferBytes(
+            key,
+            data.bytes,
+            data.total,
+            item.direction === 'in' ? '接收中' : '推送中',
+          );
+        });
+
+        socket.on('transfer-complete', (data) => {
+          const key = data.clientTaskId || data.taskToken;
+          const item = getTransfer(key);
+          const name = item ? item.name : taskLabel(data);
+          const size = formatBytes(data.bytes || data.total || 0);
+          const duration = formatDuration(data.durationMs);
+
+          if (key) finishTransfer(key, '已完成', 2500);
+          if (key) {
+            const line = document.createElement('div');
+            line.style.color = '#4cd964';
+            line.textContent = `✅ [${timeStr()}] 传输完成：${name}（${size}${duration ? `，耗时 ${duration}` : ''}）`;
+            logBox.appendChild(line);
+            trimLog();
+            logBox.scrollTop = logBox.scrollHeight;
+          }
+          cleanupTask(data, { keepTransfer: true });
+        });
+
+        socket.on('transfer-error', (data) => {
+          const message = (data && data.message) || '传输发生错误。';
+          printLog(message, 'error');
+          const key = data && (data.clientTaskId || data.taskToken);
+          if (key) {
+            if (getTransfer(key)) {
+              finishTransfer(key, /拒绝/.test(message) ? '已拒绝' : '已中断', 4000);
+            }
+            cleanupTask(data, { keepTransfer: true });
+          }
+        });
+
+        /* ------------------------------ 页面初始化 ------------------------------ */
+        document.addEventListener('visibilitychange', () => {
+          if (document.visibilityState === 'visible') {
+            if (joined) acquireWakeLock();
+          }
+        });
+
+        // 有传输进行中时，刷新/关闭页面给出二次确认，避免误触导致中断
+        window.addEventListener('beforeunload', (event) => {
+          if (joined && (pendingSends.size > 0 || hasActiveTransfers())) {
+            event.preventDefault();
+            event.returnValue = '';
+          }
+        });
+
+        function bootstrap() {
+          const params = new URLSearchParams(window.location.search);
+          const roomFromUrl = normalizeCode(params.get('room'));
+
+          if (roomFromUrl) {
+            joinCodeInput.value = roomFromUrl;
+            pendingJoinCode = roomFromUrl;
+            printLog(`检测到邀请房间 ${roomFromUrl}，正在加入…`);
+          }
+
+          setConnectionState(socket.connected);
+          renderSelectedFiles();
+          renderWakeStatus();
+          renderNotifyStatus();
+          updateInstallButtons();
+          refreshSendButtons();
+        }
+
+        bootstrap();
+      })();
     </script>
   </body>
 </html>
