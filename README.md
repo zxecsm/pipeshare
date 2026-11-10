@@ -2,6 +2,8 @@
 
 基于 Web 管道流技术的零无感快传工具，不占服务器磁盘，文件、文本秒级跨端互传。
 
+![pipeshare](https://raw.githubusercontent.com/zxecsm/pipeshare/main/pipeshare.png)
+
 现在支持 **私有房间**：不同房间之间完全隔离，只有进入同一房间的设备才能互相发现和传输文件；房间可通过 **邀请链接 / 二维码** 一键分享。
 
 ## ✨ 功能特性
