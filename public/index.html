@@ -8,7 +8,7 @@
     />
     <meta
       name="description"
-      content="基于 Web 管道流技术的零无感快传工具，私有房间隔离，不占服务器磁盘，文件、文本秒级跨端互传"
+      content="基于 WebSocket 分片传输的零无感快传工具，私有房间隔离，不占服务器磁盘，文件、文本秒级跨端互传"
     />
     <meta name="theme-color" content="#0070f3" media="(prefers-color-scheme: light)" />
     <meta name="theme-color" content="#0f172a" media="(prefers-color-scheme: dark)" />
@@ -822,7 +822,7 @@
           <img src="favicon.svg" class="brand-icon" alt="PipeShare" />
           <div>
             <h1>PipeShare</h1>
-            <p>私有房间 · 点对点流式快传</p>
+            <p>私有房间 · WebSocket 分片快传</p>
           </div>
         </div>
 
@@ -918,7 +918,7 @@
       </div>
 
       <div class="box">
-        <h3>📤 实时流式传输</h3>
+        <h3>📤 实时分片传输</h3>
 
         <label for="target-device">1. 选择接收设备：</label>
         <select id="target-device"></select>
@@ -1083,12 +1083,18 @@
         let alertTimeout = null;
 
         const MAX_BATCH_FILES = 8;
+        // 超过这个大小才弹系统保存对话框直写磁盘；小文件直接内存合并后自动下载
+        const LARGE_FILE_THRESHOLD = 256 * 1024 * 1024;
         let selectedFiles = [];
 
         const pendingSends = new Map(); // clientTaskId -> { file, fileName }
         const taskLabels = new Map(); // clientTaskId / taskToken -> 文件名
         const incomingBatches = new Map(); // batchId -> { files, total, timer, seen }
         const transferState = new Map(); // clientTaskId / taskToken -> 进度卡片状态
+        const sendStates = new Map(); // taskToken -> 发送端分片状态（窗口 / ack）
+        const receiveStates = new Map(); // taskToken -> 接收端落盘或内存合并状态
+        const receiveBatches = new Map(); // batchId -> { queue: taskToken[], active }
+        const taskBatch = new Map(); // taskToken -> batchId
 
         let wakeLock = null;
         let wakeLockWanted = false;
@@ -1396,6 +1402,11 @@
             pendingSends.delete(id);
             if (!options.keepTransfer) removeTransfer(id);
           });
+          if (data.taskToken) {
+            const send = sendStates.get(data.taskToken);
+            if (send) send.aborted = true;
+            sendStates.delete(data.taskToken);
+          }
         }
 
         function memberName(id) {
@@ -2047,6 +2058,19 @@
           cancelAllDialogs();
           pendingSends.clear();
           taskLabels.clear();
+          sendStates.forEach((state) => {
+            state.aborted = true;
+          });
+          sendStates.clear();
+          receiveStates.forEach((state) => {
+            state.failed = true;
+            if (state.writable) {
+              state.writable.abort().catch(() => {});
+            }
+          });
+          receiveStates.clear();
+          receiveBatches.clear();
+          taskBatch.clear();
           incomingBatches.forEach((batch) => {
             if (batch.timer) clearTimeout(batch.timer);
           });
@@ -2427,54 +2451,308 @@
           }
         }
 
-        async function startIncomingDownload(data) {
-          const { taskToken, clientTaskId, fileName, fileType } = data;
-          const key = clientTaskId || taskToken;
+        /* ------------------------ 接收端：分片合并 / 落盘 ------------------------ */
 
-          // 下载前预检，避免失败时浏览器把错误文字保存成文件
+        function canSaveToDisk() {
+          return Boolean(
+            window.isSecureContext &&
+              typeof window.showSaveFilePicker === 'function' &&
+              typeof window.showDirectoryPicker === 'function',
+          );
+        }
+
+        function sanitizeReceiveName(raw) {
+          const cleaned =
+            String(raw || '')
+              // eslint-disable-next-line no-control-regex
+              .replace(/[\u0000-\u001f\u007f]/g, '')
+              .replace(/[\\/:*?"<>|]/g, '_')
+              .trim()
+              .slice(0, 120);
+          if (!cleaned || cleaned === '.' || cleaned === '..') return 'download';
+          return cleaned;
+        }
+
+        async function fileHandleExists(dirHandle, name) {
           try {
-            const check = await fetch(
-              `/api/task-status?taskToken=${encodeURIComponent(taskToken)}`,
-              { cache: 'no-store' },
-            );
-            if (!check.ok) {
-              const info = await check.json().catch(() => ({}));
-              const reason =
-                info.message || '传输任务已失效，请让对方重新发送。';
-              printLog(`${fileName}：${reason}`, 'error');
-              finishTransfer(key, '已中断', 3000);
-              cleanupTask(
-                { clientTaskId, taskToken },
-                { keepTransfer: true },
-              );
-              return false;
-            }
+            await dirHandle.getFileHandle(name);
+            return true;
           } catch {
-            // 预检请求失败时不阻塞下载，交给下载请求自己反馈
+            return false;
           }
+        }
 
-          const dlUrl = `/download?taskToken=${encodeURIComponent(taskToken)}&fileName=${encodeURIComponent(fileName)}&fileType=${encodeURIComponent(fileType || '')}`;
+        async function uniqueReceiveName(dirHandle, raw, used) {
+          const name = sanitizeReceiveName(raw);
+          const dot = name.lastIndexOf('.');
+          const base = dot > 0 ? name.slice(0, dot) : name;
+          const ext = dot > 0 ? name.slice(dot) : '';
+          let candidate = name;
+          let index = 1;
+          while (used.has(candidate) || (await fileHandleExists(dirHandle, candidate))) {
+            candidate = `${base} (${index})${ext}`;
+            index += 1;
+            if (index > 9999) break;
+          }
+          used.add(candidate);
+          return candidate;
+        }
+
+        function triggerBlobDownload(url, fileName) {
           const link = document.createElement('a');
           link.style.display = 'none';
-          link.href = dlUrl;
+          link.href = url;
           if (fileName) link.download = fileName;
           document.body.appendChild(link);
           link.click();
           setTimeout(() => link.remove(), 1500);
+        }
 
-          // 某些浏览器会拦截非直接点击触发的下载，额外提供手动入口
-          const fallbackLine = document.createElement('div');
-          fallbackLine.textContent = `> [${timeStr()}] ${fileName} 未自动下载？`;
-          const manualLink = document.createElement('a');
-          manualLink.href = dlUrl;
-          manualLink.textContent = '点此手动下载';
-          manualLink.style.color = '#7dd3fc';
-          manualLink.rel = 'noopener';
-          fallbackLine.appendChild(manualLink);
-          logBox.appendChild(fallbackLine);
+        function addManualDownloadLink(url, fileName) {
+          const line = document.createElement('div');
+          line.textContent = `> [${timeStr()}] ${fileName} 未自动保存？`;
+          const link = document.createElement('a');
+          link.href = url;
+          link.download = fileName || 'download';
+          link.textContent = '点此手动保存';
+          link.style.color = '#7dd3fc';
+          line.appendChild(link);
+          logBox.appendChild(line);
           trimLog();
           logBox.scrollTop = logBox.scrollHeight;
-          return true;
+        }
+
+        /**
+         * 大文件优先直写磁盘：Chrome / Edge 桌面端支持 File System Access API，
+         * 分片到达后直接写进用户选定的文件，不把整个文件堆在内存里。
+         * 不支持或用户取消时，退回“内存合并 + Blob 下载”。
+         */
+        async function pickDiskTarget(files) {
+          if (!canSaveToDisk()) return null;
+          try {
+            if (files.length === 1) {
+              const handle = await window.showSaveFilePicker({
+                suggestedName: files[0].fileName || 'download',
+              });
+              return { type: 'file', handle };
+            }
+            const handle = await window.showDirectoryPicker({
+              id: 'pipeshare-downloads',
+              mode: 'readwrite',
+            });
+            return { type: 'dir', handle };
+          } catch (err) {
+            if (err && err.name === 'AbortError') {
+              // 用户主动取消保存位置：大文件不再退回内存模式，避免把设备撑爆
+              return { type: 'cancelled' };
+            }
+            if (err && err.name) {
+              printLog(
+                `无法直接保存到磁盘（${err.name}），改为内存接收后下载。`,
+                'error',
+              );
+            }
+            return null;
+          }
+        }
+
+        async function createReceiveState(file, diskTarget, usedNames) {
+          const state = {
+            taskToken: file.taskToken,
+            clientTaskId: file.clientTaskId,
+            key: file.clientTaskId || file.taskToken,
+            fileName: file.fileName,
+            fileType: file.fileType,
+            fileSize: Math.max(0, Number(file.fileSize) || 0),
+            batchId: file.batchId || `single:${file.taskToken}`,
+            mode: 'blob',
+            fileHandle: null,
+            writable: null,
+            chunks: [],
+            chain: Promise.resolve(),
+            received: 0,
+            failed: false,
+            started: false,
+          };
+
+          if (diskTarget) {
+            try {
+              if (diskTarget.type === 'file') {
+                state.fileHandle = diskTarget.handle;
+              } else {
+                const name = await uniqueReceiveName(
+                  diskTarget.handle,
+                  file.fileName,
+                  usedNames,
+                );
+                state.fileHandle = await diskTarget.handle.getFileHandle(name, {
+                  create: true,
+                });
+              }
+              state.mode = 'disk';
+            } catch (err) {
+              printLog(
+                `${file.fileName}：无法创建本地文件（${err.name || '错误'}），改为内存接收。`,
+                'error',
+              );
+              state.fileHandle = null;
+              state.mode = 'blob';
+            }
+          }
+
+          return state;
+        }
+
+        async function ensureReceiveWritable(state) {
+          if (state.mode !== 'disk' || state.writable) return;
+          state.writable = await state.fileHandle.createWritable();
+        }
+
+        function releaseReceiveState(state, { abortWritable = false } = {}) {
+          if (!state) return;
+          receiveStates.delete(state.taskToken);
+          state.chunks = [];
+          if (state.writable) {
+            const writable = state.writable;
+            state.writable = null;
+            const action = abortWritable ? writable.abort() : writable.close();
+            Promise.resolve(action).catch(() => {});
+          }
+        }
+
+        function failReceive(state, err) {
+          if (!state || state.failed) return;
+          state.failed = true;
+          const message = (err && err.message) || '写入失败';
+          printLog(`${state.fileName}：接收失败（${message}）`, 'error');
+          socket.emit('file-receive-error', {
+            taskToken: state.taskToken,
+            message,
+          });
+          releaseReceiveState(state, { abortWritable: true });
+          finishReceiveBatchTask(state.taskToken);
+        }
+
+        function handleIncomingChunk(data) {
+          if (!data || typeof data.taskToken !== 'string') return;
+          const state = receiveStates.get(data.taskToken);
+          if (!state || state.failed) return;
+
+          const seq = Number(data.seq);
+          // 串行写入：磁盘写入是异步的，必须保证分片按序落地，且写完再回 ack
+          state.chain = state.chain
+            .then(async () => {
+              if (state.failed) return;
+              const raw = data.data;
+              if (raw == null) throw new Error('分片数据为空');
+              const bytes =
+                raw instanceof Uint8Array ? raw : new Uint8Array(raw);
+
+              if (state.mode === 'disk') {
+                await ensureReceiveWritable(state);
+                await state.writable.write(bytes);
+              } else {
+                state.chunks.push(bytes);
+              }
+
+              state.received += bytes.byteLength;
+              socket.emit('file-chunk-ack', {
+                taskToken: state.taskToken,
+                seq,
+              });
+              updateTransferBytes(
+                state.key,
+                state.received,
+                state.fileSize,
+                '接收中',
+              );
+            })
+            .catch((err) => failReceive(state, err));
+        }
+
+        /** 所有分片都写完且已 ack 后，服务端才会发 transfer-complete */
+        async function finalizeReceive(taskToken) {
+          const state = receiveStates.get(taskToken);
+          if (!state) return;
+          try {
+            await state.chain;
+          } catch {
+            /* 错误已经在链路里处理 */
+          }
+          if (state.failed) return;
+
+          if (state.mode === 'disk') {
+            const writable = state.writable;
+            state.writable = null;
+            try {
+              if (writable) await writable.close();
+            } catch (err) {
+              printLog(
+                `${state.fileName}：写入磁盘失败（${err.message || '未知错误'}）。`,
+                'error',
+              );
+            }
+            releaseReceiveState(state);
+            return;
+          }
+
+          const blob = new Blob(state.chunks, {
+            type: state.fileType || 'application/octet-stream',
+          });
+          state.chunks = [];
+          receiveStates.delete(taskToken);
+
+          const url = URL.createObjectURL(blob);
+          triggerBlobDownload(url, state.fileName);
+          addManualDownloadLink(url, state.fileName);
+          // 留足时间给手动保存入口，之后释放内存
+          setTimeout(() => URL.revokeObjectURL(url), 10 * 60 * 1000);
+        }
+
+        function finishReceiveBatchTask(taskToken) {
+          const batchId = taskBatch.get(taskToken);
+          if (!batchId) return;
+          taskBatch.delete(taskToken);
+          const batch = receiveBatches.get(batchId);
+          if (!batch) return;
+          if (batch.active === taskToken) batch.active = null;
+          startNextReceive(batchId);
+        }
+
+        function startNextReceive(batchId) {
+          const batch = receiveBatches.get(batchId);
+          if (!batch || batch.active) return;
+
+          const taskToken = batch.queue.shift();
+          if (!taskToken) {
+            receiveBatches.delete(batchId);
+            return;
+          }
+
+          const state = receiveStates.get(taskToken);
+          if (!state) {
+            // 该文件在排队期间已经失败/取消，直接看下一个
+            startNextReceive(batchId);
+            return;
+          }
+
+          batch.active = taskToken;
+          setTransfer(state.key, { status: '接收中', direction: 'in' });
+
+          void (async () => {
+            try {
+              await ensureReceiveWritable(state);
+            } catch (err) {
+              failReceive(state, err);
+              return;
+            }
+            if (state.failed) return;
+            state.started = true;
+            socket.emit('file-start', {
+              taskToken,
+              clientTaskId: state.clientTaskId,
+            });
+          })();
         }
 
         async function flushIncomingBatch(batchId) {
@@ -2504,16 +2782,23 @@
             )
             .join('\n');
 
+          const isLarge = totalSize >= LARGE_FILE_THRESHOLD;
+          const largeHint = !isLarge
+            ? ''
+            : canSaveToDisk()
+              ? '\n\n文件较大：确认后会让你选择保存位置，分片直接写入磁盘。'
+              : '\n\n⚠️ 文件较大：当前环境无法直接写磁盘，接收时会占用较多浏览器内存，建议改用 Chrome / Edge 桌面端并通过 HTTPS 访问。';
+
           const title = isMulti
             ? `📁 收到 ${files.length} 个文件`
             : '📁 收到文件传输邀请';
           const message = isMulti
-            ? `来自【${senderName}】的 ${files.length} 个文件：\n\n${listText}\n\n合计 ${formatBytes(totalSize)}\n\n接收后将依次开始下载。若浏览器提示“允许下载多个文件”，请点击允许。`
+            ? `来自【${senderName}】的 ${files.length} 个文件：\n\n${listText}\n\n合计 ${formatBytes(totalSize)}\n\n接收后将依次开始传输，完成后保存到本地。若浏览器提示“允许下载多个文件”，请点击允许。${largeHint}`
             : `【${senderName}】想给你发送一个文件：\n\n名称：${files[0].fileName}\n大小：${
                 files[0].fileSize
                   ? formatBytes(files[0].fileSize)
                   : '未知大小'
-              }\n\n接收后将立即开始流式下载。`;
+              }\n\n接收后通过 WebSocket 分片传输，完成后保存到本地。${largeHint}`;
 
           printLog(
             isMulti
@@ -2572,31 +2857,75 @@
             return;
           }
 
+          const wantDisk = canSaveToDisk() && isLarge;
+
+          if (!wantDisk && isLarge) {
+            printLog(
+              '当前浏览器不支持直接写磁盘，大文件会在接收完成后一次性生成下载，请留意内存占用。',
+              'error',
+            );
+          }
+
+          // 大文件在用户点击“确定”的同一次交互里弹出保存位置，保证浏览器允许
+          const diskTarget = wantDisk ? await pickDiskTarget(files) : null;
+
+          if (diskTarget && diskTarget.type === 'cancelled') {
+            files.forEach((file) => {
+              socket.emit('file-share-decline', { taskToken: file.taskToken });
+              const key = file.clientTaskId || file.taskToken;
+              if (getTransfer(key)) finishTransfer(key, '已中断', 1500);
+              cleanupTask(
+                { clientTaskId: file.clientTaskId, taskToken: file.taskToken },
+                { keepTransfer: true },
+              );
+            });
+            printLog('已取消接收：没有选择保存位置。', 'error');
+            return;
+          }
+
+          const usedNames = new Set();
+          const accepted = [];
+          for (const file of files) {
+            const state = await createReceiveState(file, diskTarget, usedNames);
+            receiveStates.set(file.taskToken, state);
+            taskBatch.set(file.taskToken, batchId);
+            accepted.push(file);
+          }
+
+          if (accepted.length === 0) {
+            showAlert('文件接收未能启动，请让对方重新发送。', '⚠️', 4000);
+            return;
+          }
+
+          receiveBatches.set(batchId, {
+            queue: accepted.map((file) => file.taskToken),
+            active: null,
+          });
+
+          // 先把整批任务都 accept 掉，避免排在后面的文件邀请超时；
+          // 真正的传输由 startNextReceive 逐个 file-start 触发。
+          accepted.forEach((file) => {
+            socket.emit('file-accept', {
+              taskToken: file.taskToken,
+              clientTaskId: file.clientTaskId,
+            });
+          });
+
           printLog(
             isMulti
-              ? `已同意接收 ${files.length} 个文件，开始建立下载…`
-              : '已同意接收，正在建立下载通道…',
+              ? `已同意接收 ${accepted.length} 个文件，开始分片传输…`
+              : `已同意接收，开始分片传输${diskTarget ? '并直接写入磁盘' : ''}…`,
           );
 
-          let started = 0;
-          for (const file of files) {
-            const key = file.clientTaskId || file.taskToken;
-            setTransfer(key, { status: '接收中', direction: 'in' });
-            if (await startIncomingDownload(file)) started += 1;
-            if (files.length > 1) {
-              // 多个下载之间略微错开，兼容浏览器对连续自动下载的限制
-              await new Promise((resolve) => setTimeout(resolve, 220));
-            }
-          }
-
-          if (started === 0) {
-            showAlert('文件下载未能启动，请让对方重新发送。', '⚠️', 4000);
-          }
+          startNextReceive(batchId);
         }
 
         socket.on('incoming-file', (data) => {
           queueIncomingFile(data);
         });
+
+        // 发送端按窗口推来的文件分片：写完一片才回 ack，形成端到端背压
+        socket.on('file-chunk', handleIncomingChunk);
 
         socket.on('invite-cancelled', (data) => {
           const { taskToken, clientTaskId } = data || {};
@@ -2617,8 +2946,88 @@
           // 具体原因由 transfer-error 统一提示，避免重复日志
         });
 
+        /* ------------------------------ 发送端分片 ------------------------------ */
+
+        /**
+         * 让出主线程，让页面有机会渲染进度。
+         * 用 MessageChannel 而不是 setTimeout：后台标签页的定时器会被节流到 1 次/秒，
+         * 用定时器做让步会把后台传输速度压到几 MB/s 以下。
+         */
+        function yieldToEventLoop() {
+          return new Promise((resolve) => {
+            const channel = new MessageChannel();
+            channel.port1.onmessage = () => {
+              channel.port1.close();
+              resolve();
+            };
+            channel.port2.postMessage(null);
+          });
+        }
+
+        function maybeFinishSend(state) {
+          if (state.aborted || state.completed) return;
+          // 所有分片都已发送、且都收到接收方 ack，才算真正传完
+          if (state.sentSeq >= state.totalChunks && state.inFlight === 0) {
+            state.completed = true;
+            sendStates.delete(state.taskToken);
+            socket.emit('file-complete', {
+              taskToken: state.taskToken,
+              bytes: state.file.size,
+            });
+          }
+        }
+
+        async function pumpSend(state) {
+          if (state.pumping || state.aborted || state.completed) return;
+          state.pumping = true;
+          try {
+            while (
+              !state.aborted &&
+              !state.completed &&
+              state.inFlight < state.windowSize &&
+              state.sentSeq < state.totalChunks
+            ) {
+              const start = state.sentSeq * state.chunkSize;
+              const end = Math.min(start + state.chunkSize, state.file.size);
+              let buffer;
+              try {
+                buffer = await state.file.slice(start, end).arrayBuffer();
+              } catch (err) {
+                state.aborted = true;
+                sendStates.delete(state.taskToken);
+                printLog(
+                  `读取本地文件失败：${err.message || '未知错误'}`,
+                  'error',
+                );
+                socket.emit('file-send-error', {
+                  taskToken: state.taskToken,
+                  message: (err && err.message) || '读取失败',
+                });
+                return;
+              }
+              if (state.aborted) return;
+
+              socket.emit('file-chunk', {
+                taskToken: state.taskToken,
+                seq: state.sentSeq,
+                data: buffer,
+              });
+              state.sentSeq += 1;
+              state.inFlight += 1;
+
+              // 每读 8 片让出一次主线程，避免大文件把页面卡死
+              if (state.sentSeq % 8 === 0) {
+                await yieldToEventLoop();
+              }
+            }
+            maybeFinishSend(state);
+          } finally {
+            state.pumping = false;
+          }
+        }
+
         socket.on('start-upload-now', (data) => {
-          const { taskToken, clientTaskId } = data;
+          const { taskToken, clientTaskId } = data || {};
           const pending = pendingSends.get(clientTaskId);
 
           if (!pending) {
@@ -2626,8 +3035,35 @@
             socket.emit('file-share-cancel', { taskToken });
             return;
           }
+          if (sendStates.has(taskToken)) return;
 
           const { file, fileName } = pending;
+          const chunkSize = Math.max(
+            1,
+            Number(data.chunkSize) || 256 * 1024,
+          );
+          const windowSize = Math.max(
+            1,
+            Math.min(64, Number(data.windowSize) || 16),
+          );
+
+          const state = {
+            taskToken,
+            clientTaskId,
+            file,
+            fileName,
+            chunkSize,
+            windowSize,
+            totalChunks: Math.ceil(file.size / chunkSize),
+            sentSeq: 0,
+            ackedSeq: -1,
+            inFlight: 0,
+            pumping: false,
+            aborted: false,
+            completed: false,
+          };
+          sendStates.set(taskToken, state);
+
           setTransfer(clientTaskId, {
             name: fileName,
             total: file.size,
@@ -2635,48 +3071,29 @@
             status: '推送中',
             direction: 'out',
           });
-          printLog(`对方已同意，开始推送文件流：${fileName}`, 'success');
+          printLog(`对方已同意，开始分片推送：${fileName}`, 'success');
+          void pumpSend(state);
+        });
 
-          const xhr = new XMLHttpRequest();
-          xhr.open('POST', `/upload?taskToken=${encodeURIComponent(taskToken)}`, true);
+        socket.on('file-chunk-ack', (data) => {
+          if (!data) return;
+          const state = sendStates.get(data.taskToken);
+          if (!state) return;
 
-          xhr.upload.onprogress = (event) => {
-            if (!event.lengthComputable) return;
-            updateTransferBytes(
-              clientTaskId,
-              event.loaded,
-              event.total,
-              '推送中',
-            );
-          };
+          const seq = Number(data.seq);
+          if (!Number.isInteger(seq) || seq < 0) return;
 
-          xhr.onload = () => {
-            if (xhr.status === 200) {
-              // 完成状态统一由 transfer-complete 更新
-              return;
-            }
-            let detail = xhr.responseText;
-            try {
-              detail = JSON.parse(xhr.responseText).error || detail;
-            } catch {
-              /* 保持纯文本 */
-            }
-            printLog(`传输中断：${detail || `HTTP ${xhr.status}`}`, 'error');
-            finishTransfer(clientTaskId, '已中断', 4000);
-            cleanupTask({ taskToken, clientTaskId }, { keepTransfer: true });
-          };
-          xhr.onerror = () => {
-            printLog('推流发生网络错误，连接可能已中断。', 'error');
-            finishTransfer(clientTaskId, '已中断', 4000);
-            cleanupTask({ taskToken, clientTaskId }, { keepTransfer: true });
-          };
-          xhr.ontimeout = () => {
-            printLog('推流超时，已中断。', 'error');
-            finishTransfer(clientTaskId, '已中断', 4000);
-            cleanupTask({ taskToken, clientTaskId }, { keepTransfer: true });
-          };
-
-          xhr.send(file);
+          if (seq > state.ackedSeq) {
+            state.ackedSeq = seq;
+            state.inFlight = Math.max(0, state.sentSeq - (state.ackedSeq + 1));
+          }
+          updateTransferBytes(
+            state.clientTaskId,
+            Math.min((state.ackedSeq + 1) * state.chunkSize, state.file.size),
+            state.file.size,
+            '推送中',
+          );
+          void pumpSend(state);
         });
 
         socket.on('transfer-progress', (data) => {
@@ -2709,6 +3126,24 @@
             logBox.scrollTop = logBox.scrollHeight;
           }
           cleanupTask(data, { keepTransfer: true });
+
+          // 接收端：关闭磁盘写入流或合并内存分片触发下载，然后继续批次里的下一个
+          if (data.taskToken && receiveStates.has(data.taskToken)) {
+            void (async () => {
+              try {
+                await finalizeReceive(data.taskToken);
+              } catch (err) {
+                printLog(
+                  `保存文件失败：${(err && err.message) || '未知错误'}`,
+                  'error',
+                );
+              } finally {
+                finishReceiveBatchTask(data.taskToken);
+              }
+            })();
+          } else if (data.taskToken) {
+            finishReceiveBatchTask(data.taskToken);
+          }
         });
 
         socket.on('transfer-error', (data) => {
@@ -2720,6 +3155,14 @@
               finishTransfer(key, /拒绝/.test(message) ? '已拒绝' : '已中断', 4000);
             }
             cleanupTask(data, { keepTransfer: true });
+          }
+
+          if (data && data.taskToken) {
+            const state = receiveStates.get(data.taskToken);
+            if (state) {
+              releaseReceiveState(state, { abortWritable: true });
+            }
+            finishReceiveBatchTask(data.taskToken);
           }
         });
 

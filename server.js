@@ -1,7 +1,6 @@
 import crypto from 'node:crypto';
 import http from 'node:http';
 import path from 'node:path';
-import { pipeline } from 'node:stream';
 import { fileURLToPath } from 'node:url';
 import express from 'express';
 import QRCode from 'qrcode';
@@ -33,6 +32,14 @@ const MAX_NAME_LENGTH = 24;
 const MAX_FILE_NAME_LENGTH = 255;
 const MAX_ACTIVE_TASKS = 12; // 单设备同时进行中的传输任务上限
 const MAX_BATCH_FILES = 8; // 一次最多批量发送的文件数
+
+// 文件传输改为 WebSocket 分片：单帧 256KB，发送端最多同时保留 16 帧未确认数据。
+// 4MB 的在途窗口既能跑满带宽，又能把服务端/接收端的内存占用压在一个固定上限内。
+const CHUNK_SIZE = 256 * 1024;
+const CHUNK_WINDOW = 16;
+// 接收方已确认接收，但还在处理上一批文件时，任务最多保留 2 小时
+// （批量里可能有超大文件，排队时间要留足）
+const ACCEPTED_TASK_TTL = 2 * 60 * 60 * 1000;
 
 /* -------------------------------------------------------------------------- */
 /*                                  全局状态                                   */
@@ -246,26 +253,13 @@ function clearTaskTimers(task) {
 /**
  * 统一的失败收尾函数。
  * 无论链路是“接收方取消 / 发送方断网 / 数据卡死 / 服务端异常”，都从这里退出，
- * 保证定时器、HTTP 句柄、任务表不会残留。
+ * 保证定时器、任务表不会残留。
  */
 function abortTask(task, { senderMessage, targetMessage } = {}) {
   if (!task || !transferTasks.has(task.token)) return;
   transferTasks.delete(task.token);
   clearTaskTimers(task);
   task.aborted = true;
-
-  if (task.uploadReq && !task.uploadReq.destroyed) {
-    task.uploadReq.destroy();
-  }
-  if (task.downloadRes && !task.downloadRes.writableEnded) {
-    try {
-      // 关键：异常中断时不能调用 end()，否则浏览器会把“收到一半的文件”
-      // 当成完整下载保存下来。直接销毁连接，让浏览器明确判定下载失败。
-      task.downloadRes.destroy();
-    } catch {
-      /* 句柄可能已被对端关闭，忽略 */
-    }
-  }
 
   if (senderMessage) {
     notifyError(task.senderId, senderMessage, task.token, task.clientTaskId);
@@ -290,14 +284,6 @@ function completeTask(task) {
   transferTasks.delete(task.token);
   clearTaskTimers(task);
   task.completed = true;
-
-  if (task.downloadRes && !task.downloadRes.writableEnded) {
-    try {
-      task.downloadRes.end();
-    } catch {
-      /* ignore */
-    }
-  }
 
   const payload = {
     taskToken: task.token,
@@ -355,6 +341,40 @@ function abortTasksForSocket(socketId) {
   }
 }
 
+function clearInviteTimer(task) {
+  if (task && task.inviteTimer) {
+    clearTimeout(task.inviteTimer);
+    task.inviteTimer = null;
+  }
+}
+
+/**
+ * Socket.IO 在 Node 侧会把二进制附件解析成 Buffer，浏览器侧是 ArrayBuffer。
+ * 统一算出字节数，避免把非法载荷当成 0 字节放过去。
+ */
+function chunkByteLength(value) {
+  if (value == null) return -1;
+  if (Buffer.isBuffer(value) || ArrayBuffer.isView(value)) return value.byteLength;
+  if (value instanceof ArrayBuffer) return value.byteLength;
+  return -1;
+}
+
+/** 进度包节流到 400ms，避免信令通道被淹没 */
+function emitProgress(task) {
+  const now = Date.now();
+  if (now - task.lastProgressAt < 400) return;
+  task.lastProgressAt = now;
+  const progress = {
+    taskToken: task.token,
+    clientTaskId: task.clientTaskId,
+    bytes: task.bytes,
+    total: task.fileSize,
+    elapsedMs: now - task.startedAt,
+  };
+  io.to(task.senderId).emit('transfer-progress', progress);
+  io.to(task.targetId).emit('transfer-progress', progress);
+}
+
 /* -------------------------------------------------------------------------- */
 /*                                   HTTP 接口                                 */
 /* -------------------------------------------------------------------------- */
@@ -395,36 +415,6 @@ app.get('/healthz', (req, res) => {
   });
 });
 
-// 接收端在触发下载前做一次轻量预检，避免把“任务已失效”的报错当成文件下载下来
-app.get('/api/task-status', (req, res) => {
-  const taskToken =
-    typeof req.query.taskToken === 'string' ? req.query.taskToken : '';
-  const task = transferTasks.get(taskToken);
-
-  if (!task) {
-    return res
-      .status(410)
-      .json({ ok: false, message: '传输任务不存在或已过期。' });
-  }
-  if (task.status !== 'waiting-receiver') {
-    return res
-      .status(409)
-      .json({ ok: false, message: '该传输任务已被使用。' });
-  }
-  if (!io.sockets.sockets.get(task.senderId)) {
-    return res
-      .status(410)
-      .json({ ok: false, message: '发送端已离线，请让对方重新发送。' });
-  }
-
-  res.json({
-    ok: true,
-    fileName: task.fileName,
-    fileSize: task.fileSize,
-    status: task.status,
-  });
-});
-
 // 房间邀请二维码（服务端生成 SVG，不依赖外网 CDN，内网也能用）
 app.get('/api/qr', async (req, res) => {
   const text = typeof req.query.text === 'string' ? req.query.text : '';
@@ -448,189 +438,6 @@ app.get('/api/qr', async (req, res) => {
     console.error('[qr] 生成二维码失败:', err.message);
     res.status(500).type('text/plain').send('二维码生成失败');
   }
-});
-
-/**
- * 接收端下载接口：保持长连接，等待发送端推流后把字节实时泵过去。
- * 服务器全程不落盘。
- */
-app.get('/download', (req, res) => {
-  const taskToken =
-    typeof req.query.taskToken === 'string' ? req.query.taskToken : '';
-  const task = transferTasks.get(taskToken);
-
-  if (!task) {
-    return res
-      .status(410)
-      .type('text/plain; charset=utf-8')
-      .send('传输任务不存在或已过期，请重新发起。');
-  }
-
-  if (task.downloadRes) {
-    return res
-      .status(409)
-      .type('text/plain; charset=utf-8')
-      .send('该传输任务的下载通道已被占用。');
-  }
-
-  if (task.status !== 'waiting-receiver') {
-    return res
-      .status(409)
-      .type('text/plain; charset=utf-8')
-      .send('该传输任务状态异常，请重新发起。');
-  }
-
-  // 发送端已离线时没必要让接收方干等
-  if (!io.sockets.sockets.get(task.senderId)) {
-    abortTask(task, {
-      targetMessage: '对方已离线，传输任务已终止。',
-    });
-    return res
-      .status(410)
-      .type('text/plain; charset=utf-8')
-      .send('对方已离线，传输任务已终止。');
-  }
-
-  // 接收方已响应，撤销邀请倒计时
-  if (task.inviteTimer) {
-    clearTimeout(task.inviteTimer);
-    task.inviteTimer = null;
-  }
-
-  task.status = 'transferring';
-  task.startedAt = Date.now();
-  task.lastActivity = Date.now();
-  task.downloadRes = res;
-
-  const encodedName = encodeURIComponent(task.fileName || 'download');
-  // ASCII 回退名 + RFC 5987 中文名，兼容各种浏览器
-  res.setHeader('Content-Type', task.fileType || 'application/octet-stream');
-  res.setHeader(
-    'Content-Disposition',
-    `attachment; filename="download"; filename*=UTF-8''${encodedName}`,
-  );
-  res.setHeader('Cache-Control', 'no-store');
-  // 阻止 Nginx 等反向代理缓冲，保证真流式穿透
-  res.setHeader('X-Accel-Buffering', 'no');
-  // 由 Node 自动使用 chunked 编码；手动设置可能导致重复头
-  // 立即把响应头送出去，让浏览器马上进入下载状态
-  res.flushHeaders();
-
-  res.on('close', () => {
-    // 正常传输完成时任务已从表中删除，这里不会误报
-    if (!transferTasks.has(taskToken) || task.downloadRes !== res) return;
-    // pipeline 正常写完时 close 会先于上传侧的 settle 回调触发，此时不能当成断线
-    if (res.writableFinished) return;
-    abortTask(task, {
-      senderMessage: '接收端已中断下载，传输已取消。',
-      targetMessage: '下载连接已断开，传输已取消。',
-    });
-  });
-
-  // 通知发送端开始推流
-  io.to(task.senderId).emit('start-upload-now', {
-    taskToken,
-    clientTaskId: task.clientTaskId,
-    fileName: task.fileName,
-    fileSize: task.fileSize,
-  });
-
-  startStallWatch(task);
-});
-
-/**
- * 发送端推流接口：把上传请求的可读流直接管道到接收端响应，内存中转、零磁盘。
- */
-app.post('/upload', (req, res) => {
-  const taskToken =
-    typeof req.query.taskToken === 'string' ? req.query.taskToken : '';
-  const task = transferTasks.get(taskToken);
-
-  const fail = (status, message) => {
-    // 必须把请求体读掉，否则连接无法复用，还会让客户端误以为还在上传
-    req.resume();
-    res.status(status).json({ ok: false, error: message });
-  };
-
-  if (!task) return fail(410, '非法的传输令牌或任务已过期');
-  if (task.uploadReq) return fail(409, '重复的推流请求');
-  if (!task.downloadRes || task.downloadRes.writableEnded) {
-    return fail(409, '接收端通道未就绪或已关闭');
-  }
-  if (task.status !== 'transferring') {
-    return fail(409, '传输任务状态异常');
-  }
-
-  task.uploadReq = req;
-  task.status = 'uploading';
-  task.lastActivity = Date.now();
-  task.lastProgressAt = 0;
-
-  let finished = false;
-
-  const settle = (err) => {
-    if (finished) return;
-    finished = true;
-
-    if (!transferTasks.has(taskToken)) {
-      // 已被其它路径（取消 / 超时 / 断线）清理，避免重复通知
-      if (!res.writableEnded) {
-        res.status(499).json({ ok: false, error: '传输已被取消' });
-      }
-      return;
-    }
-
-    // 数据完整性校验：声明的文件大小与实际收到的字节数必须一致，
-    // 否则宁可判为失败，也不能让接收方拿到一个“看似成功”的残文件。
-    if (!err && task.fileSize > 0 && task.bytes !== task.fileSize) {
-      err = new Error(
-        `数据量校验失败（收到 ${task.bytes} / 应为 ${task.fileSize} 字节）`,
-      );
-    }
-
-    if (err) {
-      abortTask(task, {
-        senderMessage: `推流失败：${err.message || '网络连接异常'}。`,
-        targetMessage: '发送端数据流异常，传输已中断。',
-      });
-      if (!res.writableEnded) {
-        res.status(502).json({ ok: false, error: '传输已中断' });
-      }
-      return;
-    }
-
-    completeTask(task);
-    if (!res.writableEnded) {
-      res.status(200).json({ ok: true, bytes: task.bytes });
-    }
-  };
-
-  req.on('data', (chunk) => {
-    task.bytes += chunk.length;
-    task.lastActivity = Date.now();
-
-    // 节流：最多每 400ms 推一次进度，避免信令通道被进度包淹没
-    const now = Date.now();
-    if (now - task.lastProgressAt >= 400) {
-      task.lastProgressAt = now;
-      const progress = {
-        taskToken,
-        clientTaskId: task.clientTaskId,
-        bytes: task.bytes,
-        total: task.fileSize,
-        elapsedMs: now - task.startedAt,
-      };
-      io.to(task.senderId).emit('transfer-progress', progress);
-      io.to(task.targetId).emit('transfer-progress', progress);
-    }
-  });
-
-  req.on('aborted', () => {
-    settle(new Error('发送端主动中止了上传'));
-  });
-
-  // pipeline 会在任意一端出错时销毁两条流，避免句柄悬挂
-  pipeline(req, task.downloadRes, (err) => settle(err));
 });
 
 /* -------------------------------------------------------------------------- */
@@ -712,6 +519,8 @@ io.on('connection', (socket) => {
   });
 
   socket.on('room:leave', () => {
+    // 离开房间意味着放弃当前房间内的所有传输，避免任务悬挂
+    abortTasksForSocket(socket.id);
     leaveRoom(socket);
     socket.emit('room:left');
   });
@@ -863,14 +672,15 @@ io.on('connection', (socket) => {
         fileSize: safeSize,
         status: 'waiting-receiver',
         bytes: 0,
+        nextSeq: 0,
+        ackedSeq: -1,
         createdAt: Date.now(),
+        acceptedAt: 0,
         startedAt: 0,
         lastActivity: Date.now(),
         lastProgressAt: 0,
         inviteTimer: null,
         stallTimer: null,
-        downloadRes: null,
-        uploadReq: null,
       };
 
       // 邀请超时：双方都收到明确反馈，任务不会泄漏
@@ -939,6 +749,206 @@ io.on('connection', (socket) => {
     });
   });
 
+  /* ------------------------------ 分片传输协议 ------------------------------ */
+
+  /**
+   * 接收方确认接收：先清掉邀请倒计时，任务进入 accepted 状态。
+   * 批量接收时，接收方可以先把整批都 accept，再按顺序发 file-start，
+   * 这样后面的文件不会因为等待前面的文件而邀请过期。
+   */
+  socket.on('file-accept', (data) => {
+    const task = transferTasks.get(data && data.taskToken);
+    if (!task) {
+      return notifyError(
+        socket.id,
+        '传输任务不存在或已过期。',
+        data && data.taskToken,
+        data && data.clientTaskId,
+      );
+    }
+    if (task.targetId !== socket.id) return;
+    if (task.status !== 'waiting-receiver') return;
+    if (!io.sockets.sockets.get(task.senderId)) {
+      return abortTask(task, {
+        targetMessage: '发送端已离线，传输已取消。',
+      });
+    }
+
+    clearInviteTimer(task);
+    task.status = 'accepted';
+    task.acceptedAt = Date.now();
+  });
+
+  /** 接收方准备好落盘位置后，通知发送端开始按窗口推分片 */
+  socket.on('file-start', (data) => {
+    const task = transferTasks.get(data && data.taskToken);
+    if (!task) {
+      return notifyError(
+        socket.id,
+        '传输任务不存在或已过期，请让对方重新发送。',
+        data && data.taskToken,
+        data && data.clientTaskId,
+      );
+    }
+    if (task.targetId !== socket.id) return;
+    // 重复的 file-start 按幂等处理，不再重复通知发送端
+    if (task.status === 'transferring') return;
+    if (task.status !== 'accepted' && task.status !== 'waiting-receiver') {
+      return;
+    }
+    if (!io.sockets.sockets.get(task.senderId)) {
+      return abortTask(task, {
+        targetMessage: '发送端已离线，传输已取消。',
+      });
+    }
+
+    clearInviteTimer(task);
+    task.status = 'transferring';
+    task.startedAt = Date.now();
+    task.lastActivity = Date.now();
+    task.bytes = 0;
+    task.nextSeq = 0;
+    task.ackedSeq = -1;
+    task.lastProgressAt = 0;
+
+    io.to(task.senderId).emit('start-upload-now', {
+      taskToken: task.token,
+      clientTaskId: task.clientTaskId,
+      fileName: task.fileName,
+      fileSize: task.fileSize,
+      chunkSize: CHUNK_SIZE,
+      windowSize: CHUNK_WINDOW,
+    });
+
+    startStallWatch(task);
+  });
+
+  /**
+   * 发送端分片：服务端只做转发，不缓存。接收方写完后回 ack，
+   * 服务端把 ack 转给发送端；发送端凭 ack 滑动窗口，
+   * 因此在途数据永远不超过 windowSize 个分片，内存占用有上界。
+   */
+  socket.on('file-chunk', (data) => {
+    const task = transferTasks.get(data && data.taskToken);
+    // 任务已被取消/超时清理：迟到的分片直接丢弃
+    if (!task) return;
+    if (task.senderId !== socket.id) return;
+    if (task.status !== 'transferring') return;
+
+    const seq = Number(data.seq);
+    const size = chunkByteLength(data.data);
+
+    if (!Number.isInteger(seq) || seq < 0 || size < 0) {
+      return abortTask(task, {
+        senderMessage: '分片格式无效，传输已中断。',
+        targetMessage: '发送端数据异常，传输已中断。',
+      });
+    }
+    if (seq !== task.nextSeq) {
+      return abortTask(task, {
+        senderMessage: `分片顺序异常（收到 #${seq}，期望 #${task.nextSeq}），传输已中断。`,
+        targetMessage: '发送端数据顺序异常，传输已中断。',
+      });
+    }
+    if (size > CHUNK_SIZE) {
+      return abortTask(task, {
+        senderMessage: `单个分片超过 ${CHUNK_SIZE} 字节上限，传输已中断。`,
+        targetMessage: '发送端数据异常，传输已中断。',
+      });
+    }
+    if (task.fileSize >= 0 && task.bytes + size > task.fileSize) {
+      return abortTask(task, {
+        senderMessage: '发送的数据超过声明的文件大小，传输已中断。',
+        targetMessage: '收到的数据异常，传输已中断。',
+      });
+    }
+    // 防御性流控：正常客户端最多 CHUNK_WINDOW 片未确认；
+    // 留 2 倍余量，超过就说明对端没有遵守窗口，直接中断避免撑爆内存。
+    if (task.nextSeq - (task.ackedSeq + 1) >= CHUNK_WINDOW * 2) {
+      return abortTask(task, {
+        senderMessage: '发送端未遵守流控窗口，传输已中断。',
+        targetMessage: '数据流异常，传输已中断。',
+      });
+    }
+
+    io.to(task.targetId).emit('file-chunk', {
+      taskToken: task.token,
+      clientTaskId: task.clientTaskId,
+      seq,
+      data: data.data,
+    });
+
+    task.nextSeq += 1;
+    task.bytes += size;
+    task.lastActivity = Date.now();
+    emitProgress(task);
+  });
+
+  /** 接收方每写完一个分片才回 ack，形成端到端背压 */
+  socket.on('file-chunk-ack', (data) => {
+    const task = transferTasks.get(data && data.taskToken);
+    if (!task) return;
+    if (task.targetId !== socket.id) return;
+
+    const seq = Number(data.seq);
+    if (!Number.isInteger(seq) || seq < 0) return;
+
+    if (seq > task.ackedSeq) task.ackedSeq = seq;
+    task.lastActivity = Date.now();
+    io.to(task.senderId).emit('file-chunk-ack', {
+      taskToken: task.token,
+      clientTaskId: task.clientTaskId,
+      seq,
+    });
+  });
+
+  /** 发送端确认所有分片都已 ack，服务端做最后的字节数校验 */
+  socket.on('file-complete', (data) => {
+    const task = transferTasks.get(data && data.taskToken);
+    if (!task) return;
+    if (task.senderId !== socket.id) return;
+    if (task.status !== 'transferring') return;
+
+    if (task.bytes !== task.fileSize) {
+      return abortTask(task, {
+        senderMessage: `数据量校验失败（已传 ${task.bytes} / 应为 ${task.fileSize} 字节），传输已中断。`,
+        targetMessage: '收到的数据不完整，传输已中断，请让对方重新发送。',
+      });
+    }
+    if (task.ackedSeq !== task.nextSeq - 1) {
+      return abortTask(task, {
+        senderMessage: '接收端尚未确认全部分片，传输已中断。',
+        targetMessage: '数据接收未完成，传输已中断。',
+      });
+    }
+
+    completeTask(task);
+  });
+
+  /** 接收端写盘失败（磁盘满、权限被收回等） */
+  socket.on('file-receive-error', (data) => {
+    const task = transferTasks.get(data && data.taskToken);
+    if (!task || task.targetId !== socket.id) return;
+    const raw = typeof data.message === 'string' ? data.message : '';
+    const message = raw.slice(0, 200) || '未知错误';
+    abortTask(task, {
+      senderMessage: `接收端保存文件失败：${message}`,
+      targetMessage: `保存文件失败：${message}`,
+    });
+  });
+
+  /** 发送端读取本地文件失败（文件被移动、权限被撤销等） */
+  socket.on('file-send-error', (data) => {
+    const task = transferTasks.get(data && data.taskToken);
+    if (!task || task.senderId !== socket.id) return;
+    const raw = typeof data.message === 'string' ? data.message : '';
+    const message = raw.slice(0, 200) || '未知错误';
+    abortTask(task, {
+      senderMessage: `读取本地文件失败：${message}`,
+      targetMessage: '发送端读取文件失败，传输已中断。',
+    });
+  });
+
   /* -------------------------------- 断线处理 ------------------------------- */
 
   socket.on('disconnect', (reason) => {
@@ -969,6 +979,15 @@ const roomGcTimer = setInterval(() => {
   for (const [key, bucket] of rateLimits) {
     if (now >= bucket.resetAt) rateLimits.delete(key);
   }
+  // 已确认接收但迟迟不开始的任务（例如接收方一直停留在上一批），避免永久占用
+  for (const task of Array.from(transferTasks.values())) {
+    if (task.status === 'accepted' && now - task.acceptedAt > ACCEPTED_TASK_TTL) {
+      abortTask(task, {
+        senderMessage: '接收方长时间未开始接收，传输已取消。',
+        targetMessage: '传输等待超时，已取消。',
+      });
+    }
+  }
 }, 60 * 1000);
 if (typeof roomGcTimer.unref === 'function') roomGcTimer.unref();
 
@@ -997,11 +1016,9 @@ process.on('unhandledRejection', (err) => {
   console.error('[unhandledRejection]', err);
 });
 
-// 关键：Node 默认 5 分钟请求超时会把大文件上传直接掐断，这里必须关闭
-server.requestTimeout = 0;
-server.timeout = 0;
+// 文件传输已改为 WebSocket 分片，不再有长连接 HTTP 上传，
+// 这里只需保证普通请求和 WebSocket 心跳有合理的超时。
 server.headersTimeout = 65 * 1000;
-// 长连接上传期间若使用 keep-alive，需要留足时间
 server.keepAliveTimeout = 72 * 1000;
 
 server.listen(PORT, HOST, () => {

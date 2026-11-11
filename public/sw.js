@@ -11,7 +11,7 @@
  * 注意：修改静态资源后请同步提升 CACHE_NAME，让旧缓存被清理。
  */
 
-const CACHE_NAME = 'pipeshare-shell-v3';
+const CACHE_NAME = 'pipeshare-shell-v4';
 const SCOPE = self.registration.scope;
 const SHELL_URL = new URL('./index.html', SCOPE).href;
 const HOME_URL = new URL('./', SCOPE).href;
@@ -33,7 +33,7 @@ function isSocketIoClientScript(path) {
   return /\/socket\.io\/socket\.io(?:\.esm\.min|\.min)?\.js$/.test(path);
 }
 
-/** 这些请求绝不能进缓存：传输流、信令、API */
+/** 这些请求绝不能进缓存：信令、API */
 function shouldBypass(url) {
   const path = url.pathname;
 
@@ -42,8 +42,6 @@ function shouldBypass(url) {
     return true;
   }
   if (/\/api\//.test(path)) return true;
-  if (/\/download$/.test(path)) return true;
-  if (/\/upload$/.test(path)) return true;
   if (/\/healthz$/.test(path)) return true;
   return false;
 }
