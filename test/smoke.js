@@ -263,7 +263,7 @@ function sendFile(socket, clientTaskId, buffer, opts = {}) {
     function onStart(data) {
       if (!data || data.clientTaskId !== clientTaskId) return;
       taskToken = data.taskToken;
-      const chunk = Number(data.chunkSize) || 256 * 1024;
+      const chunk = Number(data.chunkSize) || 512 * 1024;
       state = {
         chunk,
         window: Number(data.windowSize) || 16,
@@ -355,7 +355,7 @@ async function main() {
     const swBody = swRes.body.toString('utf8');
     assert.match(swBody, /CACHE_NAME/);
     assert.match(swBody, /notificationclick/);
-    assert.match(swBody, /pipeshare-shell-v4/);
+    assert.match(swBody, /pipeshare-shell-v5/);
     assert.match(swRes.headers['cache-control'] || '', /no-cache/);
 
     const iconRes = await httpGet(`${BASE}/icons/icon-512.png`);

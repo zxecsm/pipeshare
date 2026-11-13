@@ -952,6 +952,14 @@
             placeholder="在此输入需要发送的文本、代码或URL链接..."
           ></textarea>
           <button id="send-text-btn">🚀 发送普通文本</button>
+          <button
+            id="send-clipboard-btn"
+            type="button"
+            class="btn-ghost"
+            title="读取系统剪贴板中的文本并直接发送（需要 HTTPS 或 localhost）"
+          >
+            📋 读取剪贴板并发送
+          </button>
         </div>
       </div>
 
@@ -1043,6 +1051,7 @@
         const textInput = $('text-input');
         const sendBtn = $('send-btn');
         const sendTextBtn = $('send-text-btn');
+        const sendClipboardBtn = $('send-clipboard-btn');
 
         const transferBox = $('transfer-box');
         const transferList = $('transfer-list');
@@ -1083,7 +1092,7 @@
         let alertTimeout = null;
 
         const MAX_BATCH_FILES = 8;
-        // 超过这个大小才弹系统保存对话框直写磁盘；小文件直接内存合并后自动下载
+        // 超过这个大小只用于提示接收端内存占用，传输方式始终是内存合并后下载
         const LARGE_FILE_THRESHOLD = 256 * 1024 * 1024;
         let selectedFiles = [];
 
@@ -1092,7 +1101,7 @@
         const incomingBatches = new Map(); // batchId -> { files, total, timer, seen }
         const transferState = new Map(); // clientTaskId / taskToken -> 进度卡片状态
         const sendStates = new Map(); // taskToken -> 发送端分片状态（窗口 / ack）
-        const receiveStates = new Map(); // taskToken -> 接收端落盘或内存合并状态
+        const receiveStates = new Map(); // taskToken -> 接收端内存合并状态
         const receiveBatches = new Map(); // batchId -> { queue: taskToken[], active }
         const taskBatch = new Map(); // taskToken -> batchId
 
@@ -1881,6 +1890,7 @@
           sendBtn.disabled =
             !connected || !hasTarget || selectedFiles.length === 0;
           sendTextBtn.disabled = !connected || !hasTarget;
+          sendClipboardBtn.disabled = !connected || !hasTarget;
         }
 
         function showGate() {
@@ -2064,9 +2074,7 @@
           sendStates.clear();
           receiveStates.forEach((state) => {
             state.failed = true;
-            if (state.writable) {
-              state.writable.abort().catch(() => {});
-            }
+            state.chunks = [];
           });
           receiveStates.clear();
           receiveBatches.clear();
@@ -2230,18 +2238,66 @@
         };
 
         /* ------------------------------ 文本发送 ------------------------------ */
-        sendTextBtn.onclick = () => {
-          const text = textInput.value.trim();
+        function canSendText() {
+          if (!joined) {
+            showAlert('请先加入一个房间。', '🔒');
+            return false;
+          }
+          if (!connected) {
+            showAlert('连接已断开，正在重连…', '📡');
+            return false;
+          }
+          if (!targetSelect.value) {
+            showAlert('房间内还没有其他设备。', '⚠️');
+            return false;
+          }
+          return true;
+        }
+
+        function deliverText(text) {
           const targetId = targetSelect.value;
-
-          if (!joined) return showAlert('请先加入一个房间。', '🔒');
-          if (!connected) return showAlert('连接已断开，正在重连…', '📡');
-          if (!targetId) return showAlert('房间内还没有其他设备。', '⚠️');
-          if (!text) return showAlert('请输入需要传输的文本内容。', '📝');
-
           socket.emit('text-share', { targetId, content: text });
           printLog(`正在向 [${memberName(targetId)}] 投递文本内容…`);
+        }
+
+        sendTextBtn.onclick = () => {
+          const text = textInput.value.trim();
+
+          if (!canSendText()) return;
+          if (!text) return showAlert('请输入需要传输的文本内容。', '📝');
+
+          deliverText(text);
           textInput.value = '';
+        };
+
+        sendClipboardBtn.onclick = async () => {
+          if (!canSendText()) return;
+
+          let text = '';
+          try {
+            // 必须在用户点击的同步阶段调用 readText，等待任何异步操作后再读会丢失手势授权
+            if (!navigator.clipboard || !navigator.clipboard.readText) {
+              throw new Error('clipboard unsupported');
+            }
+            text = (await navigator.clipboard.readText()) || '';
+          } catch {
+            return showAlert(
+              '无法读取剪贴板：请通过 HTTPS 或 localhost 访问并允许剪贴板权限，也可以手动粘贴到输入框后发送。',
+              '📋',
+              5000,
+            );
+          }
+
+          text = text.trim();
+          if (!text) {
+            return showAlert('剪贴板中没有可发送的文本内容。', '📋');
+          }
+          if (new Blob([text]).size > 256 * 1024) {
+            return showAlert('剪贴板文本超过 256KB，无法发送。', '⚠️', 4000);
+          }
+
+          textInput.value = text;
+          deliverText(text);
         };
 
         /* ------------------------------ 文件发送 ------------------------------ */
@@ -2451,52 +2507,7 @@
           }
         }
 
-        /* ------------------------ 接收端：分片合并 / 落盘 ------------------------ */
-
-        function canSaveToDisk() {
-          return Boolean(
-            window.isSecureContext &&
-              typeof window.showSaveFilePicker === 'function' &&
-              typeof window.showDirectoryPicker === 'function',
-          );
-        }
-
-        function sanitizeReceiveName(raw) {
-          const cleaned =
-            String(raw || '')
-              // eslint-disable-next-line no-control-regex
-              .replace(/[\u0000-\u001f\u007f]/g, '')
-              .replace(/[\\/:*?"<>|]/g, '_')
-              .trim()
-              .slice(0, 120);
-          if (!cleaned || cleaned === '.' || cleaned === '..') return 'download';
-          return cleaned;
-        }
-
-        async function fileHandleExists(dirHandle, name) {
-          try {
-            await dirHandle.getFileHandle(name);
-            return true;
-          } catch {
-            return false;
-          }
-        }
-
-        async function uniqueReceiveName(dirHandle, raw, used) {
-          const name = sanitizeReceiveName(raw);
-          const dot = name.lastIndexOf('.');
-          const base = dot > 0 ? name.slice(0, dot) : name;
-          const ext = dot > 0 ? name.slice(dot) : '';
-          let candidate = name;
-          let index = 1;
-          while (used.has(candidate) || (await fileHandleExists(dirHandle, candidate))) {
-            candidate = `${base} (${index})${ext}`;
-            index += 1;
-            if (index > 9999) break;
-          }
-          used.add(candidate);
-          return candidate;
-        }
+        /* ------------------------ 接收端：分片合并 / 下载 ------------------------ */
 
         function triggerBlobDownload(url, fileName) {
           const link = document.createElement('a');
@@ -2523,41 +2534,11 @@
         }
 
         /**
-         * 大文件优先直写磁盘：Chrome / Edge 桌面端支持 File System Access API，
-         * 分片到达后直接写进用户选定的文件，不把整个文件堆在内存里。
-         * 不支持或用户取消时，退回“内存合并 + Blob 下载”。
+         * 所有文件统一先接收进内存（分片数组），全部到齐后再合并成 Blob
+         * 并触发浏览器下载，不再请求磁盘写入权限。
          */
-        async function pickDiskTarget(files) {
-          if (!canSaveToDisk()) return null;
-          try {
-            if (files.length === 1) {
-              const handle = await window.showSaveFilePicker({
-                suggestedName: files[0].fileName || 'download',
-              });
-              return { type: 'file', handle };
-            }
-            const handle = await window.showDirectoryPicker({
-              id: 'pipeshare-downloads',
-              mode: 'readwrite',
-            });
-            return { type: 'dir', handle };
-          } catch (err) {
-            if (err && err.name === 'AbortError') {
-              // 用户主动取消保存位置：大文件不再退回内存模式，避免把设备撑爆
-              return { type: 'cancelled' };
-            }
-            if (err && err.name) {
-              printLog(
-                `无法直接保存到磁盘（${err.name}），改为内存接收后下载。`,
-                'error',
-              );
-            }
-            return null;
-          }
-        }
-
-        async function createReceiveState(file, diskTarget, usedNames) {
-          const state = {
+        function createReceiveState(file) {
+          return {
             taskToken: file.taskToken,
             clientTaskId: file.clientTaskId,
             key: file.clientTaskId || file.taskToken,
@@ -2565,71 +2546,30 @@
             fileType: file.fileType,
             fileSize: Math.max(0, Number(file.fileSize) || 0),
             batchId: file.batchId || `single:${file.taskToken}`,
-            mode: 'blob',
-            fileHandle: null,
-            writable: null,
             chunks: [],
             chain: Promise.resolve(),
             received: 0,
             failed: false,
             started: false,
           };
-
-          if (diskTarget) {
-            try {
-              if (diskTarget.type === 'file') {
-                state.fileHandle = diskTarget.handle;
-              } else {
-                const name = await uniqueReceiveName(
-                  diskTarget.handle,
-                  file.fileName,
-                  usedNames,
-                );
-                state.fileHandle = await diskTarget.handle.getFileHandle(name, {
-                  create: true,
-                });
-              }
-              state.mode = 'disk';
-            } catch (err) {
-              printLog(
-                `${file.fileName}：无法创建本地文件（${err.name || '错误'}），改为内存接收。`,
-                'error',
-              );
-              state.fileHandle = null;
-              state.mode = 'blob';
-            }
-          }
-
-          return state;
         }
 
-        async function ensureReceiveWritable(state) {
-          if (state.mode !== 'disk' || state.writable) return;
-          state.writable = await state.fileHandle.createWritable();
-        }
-
-        function releaseReceiveState(state, { abortWritable = false } = {}) {
+        function releaseReceiveState(state) {
           if (!state) return;
           receiveStates.delete(state.taskToken);
           state.chunks = [];
-          if (state.writable) {
-            const writable = state.writable;
-            state.writable = null;
-            const action = abortWritable ? writable.abort() : writable.close();
-            Promise.resolve(action).catch(() => {});
-          }
         }
 
         function failReceive(state, err) {
           if (!state || state.failed) return;
           state.failed = true;
-          const message = (err && err.message) || '写入失败';
+          const message = (err && err.message) || '接收失败';
           printLog(`${state.fileName}：接收失败（${message}）`, 'error');
           socket.emit('file-receive-error', {
             taskToken: state.taskToken,
             message,
           });
-          releaseReceiveState(state, { abortWritable: true });
+          releaseReceiveState(state);
           finishReceiveBatchTask(state.taskToken);
         }
 
@@ -2639,7 +2579,7 @@
           if (!state || state.failed) return;
 
           const seq = Number(data.seq);
-          // 串行写入：磁盘写入是异步的，必须保证分片按序落地，且写完再回 ack
+          // 串行处理：保证分片按到达顺序进入内存，处理完一片再回 ack
           state.chain = state.chain
             .then(async () => {
               if (state.failed) return;
@@ -2648,12 +2588,7 @@
               const bytes =
                 raw instanceof Uint8Array ? raw : new Uint8Array(raw);
 
-              if (state.mode === 'disk') {
-                await ensureReceiveWritable(state);
-                await state.writable.write(bytes);
-              } else {
-                state.chunks.push(bytes);
-              }
+              state.chunks.push(bytes);
 
               state.received += bytes.byteLength;
               socket.emit('file-chunk-ack', {
@@ -2670,7 +2605,7 @@
             .catch((err) => failReceive(state, err));
         }
 
-        /** 所有分片都写完且已 ack 后，服务端才会发 transfer-complete */
+        /** 所有分片都接收完且已 ack 后，服务端才会发 transfer-complete */
         async function finalizeReceive(taskToken) {
           const state = receiveStates.get(taskToken);
           if (!state) return;
@@ -2680,21 +2615,6 @@
             /* 错误已经在链路里处理 */
           }
           if (state.failed) return;
-
-          if (state.mode === 'disk') {
-            const writable = state.writable;
-            state.writable = null;
-            try {
-              if (writable) await writable.close();
-            } catch (err) {
-              printLog(
-                `${state.fileName}：写入磁盘失败（${err.message || '未知错误'}）。`,
-                'error',
-              );
-            }
-            releaseReceiveState(state);
-            return;
-          }
 
           const blob = new Blob(state.chunks, {
             type: state.fileType || 'application/octet-stream',
@@ -2739,20 +2659,12 @@
           batch.active = taskToken;
           setTransfer(state.key, { status: '接收中', direction: 'in' });
 
-          void (async () => {
-            try {
-              await ensureReceiveWritable(state);
-            } catch (err) {
-              failReceive(state, err);
-              return;
-            }
-            if (state.failed) return;
-            state.started = true;
-            socket.emit('file-start', {
-              taskToken,
-              clientTaskId: state.clientTaskId,
-            });
-          })();
+          // 内存接收不需要额外的落盘准备，直接让发送端开始推分片
+          state.started = true;
+          socket.emit('file-start', {
+            taskToken,
+            clientTaskId: state.clientTaskId,
+          });
         }
 
         async function flushIncomingBatch(batchId) {
@@ -2783,22 +2695,20 @@
             .join('\n');
 
           const isLarge = totalSize >= LARGE_FILE_THRESHOLD;
-          const largeHint = !isLarge
-            ? ''
-            : canSaveToDisk()
-              ? '\n\n文件较大：确认后会让你选择保存位置，分片直接写入磁盘。'
-              : '\n\n⚠️ 文件较大：当前环境无法直接写磁盘，接收时会占用较多浏览器内存，建议改用 Chrome / Edge 桌面端并通过 HTTPS 访问。';
+          const largeHint = isLarge
+            ? '\n\n⚠️ 文件较大：接收期间会暂存在浏览器内存中，全部到齐后自动触发下载，请保持页面在前台并留意内存占用。'
+            : '';
 
           const title = isMulti
             ? `📁 收到 ${files.length} 个文件`
             : '📁 收到文件传输邀请';
           const message = isMulti
-            ? `来自【${senderName}】的 ${files.length} 个文件：\n\n${listText}\n\n合计 ${formatBytes(totalSize)}\n\n接收后将依次开始传输，完成后保存到本地。若浏览器提示“允许下载多个文件”，请点击允许。${largeHint}`
+            ? `来自【${senderName}】的 ${files.length} 个文件：\n\n${listText}\n\n合计 ${formatBytes(totalSize)}\n\n接收后依次暂存到内存，完成后自动下载。若浏览器提示“允许下载多个文件”，请点击允许。${largeHint}`
             : `【${senderName}】想给你发送一个文件：\n\n名称：${files[0].fileName}\n大小：${
                 files[0].fileSize
                   ? formatBytes(files[0].fileSize)
                   : '未知大小'
-              }\n\n接收后通过 WebSocket 分片传输，完成后保存到本地。${largeHint}`;
+              }\n\n接收后会先暂存到内存，完成后自动触发下载。${largeHint}`;
 
           printLog(
             isMulti
@@ -2857,37 +2767,9 @@
             return;
           }
 
-          const wantDisk = canSaveToDisk() && isLarge;
-
-          if (!wantDisk && isLarge) {
-            printLog(
-              '当前浏览器不支持直接写磁盘，大文件会在接收完成后一次性生成下载，请留意内存占用。',
-              'error',
-            );
-          }
-
-          // 大文件在用户点击“确定”的同一次交互里弹出保存位置，保证浏览器允许
-          const diskTarget = wantDisk ? await pickDiskTarget(files) : null;
-
-          if (diskTarget && diskTarget.type === 'cancelled') {
-            files.forEach((file) => {
-              socket.emit('file-share-decline', { taskToken: file.taskToken });
-              const key = file.clientTaskId || file.taskToken;
-              if (getTransfer(key)) finishTransfer(key, '已中断', 1500);
-              cleanupTask(
-                { clientTaskId: file.clientTaskId, taskToken: file.taskToken },
-                { keepTransfer: true },
-              );
-            });
-            printLog('已取消接收：没有选择保存位置。', 'error');
-            return;
-          }
-
-          const usedNames = new Set();
           const accepted = [];
           for (const file of files) {
-            const state = await createReceiveState(file, diskTarget, usedNames);
-            receiveStates.set(file.taskToken, state);
+            receiveStates.set(file.taskToken, createReceiveState(file));
             taskBatch.set(file.taskToken, batchId);
             accepted.push(file);
           }
@@ -2914,7 +2796,7 @@
           printLog(
             isMulti
               ? `已同意接收 ${accepted.length} 个文件，开始分片传输…`
-              : `已同意接收，开始分片传输${diskTarget ? '并直接写入磁盘' : ''}…`,
+              : '已同意接收，开始分片传输…',
           );
 
           startNextReceive(batchId);
@@ -3040,7 +2922,7 @@
           const { file, fileName } = pending;
           const chunkSize = Math.max(
             1,
-            Number(data.chunkSize) || 256 * 1024,
+            Number(data.chunkSize) || 512 * 1024,
           );
           const windowSize = Math.max(
             1,
@@ -3127,7 +3009,7 @@
           }
           cleanupTask(data, { keepTransfer: true });
 
-          // 接收端：关闭磁盘写入流或合并内存分片触发下载，然后继续批次里的下一个
+          // 接收端：把内存分片合并成 Blob 触发下载，然后继续批次里的下一个
           if (data.taskToken && receiveStates.has(data.taskToken)) {
             void (async () => {
               try {
@@ -3160,7 +3042,7 @@
           if (data && data.taskToken) {
             const state = receiveStates.get(data.taskToken);
             if (state) {
-              releaseReceiveState(state, { abortWritable: true });
+              releaseReceiveState(state);
             }
             finishReceiveBatchTask(data.taskToken);
           }
