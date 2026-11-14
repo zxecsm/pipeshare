@@ -2261,10 +2261,11 @@
         }
 
         sendTextBtn.onclick = () => {
-          const text = textInput.value.trim();
+          // 仅要求非空：空格、换行等空白字符也允许发送，不做 trim
+          const text = textInput.value;
 
           if (!canSendText()) return;
-          if (!text) return showAlert('请输入需要传输的文本内容。', '📝');
+          if (text.length === 0) return showAlert('请输入需要传输的文本内容。', '📝');
 
           deliverText(text);
           textInput.value = '';
@@ -2288,8 +2289,8 @@
             );
           }
 
-          text = text.trim();
-          if (!text) {
+          // 仅要求非空：空格、换行等空白字符也允许发送，不做 trim
+          if (text.length === 0) {
             return showAlert('剪贴板中没有可发送的文本内容。', '📋');
           }
           if (new Blob([text]).size > 256 * 1024) {
