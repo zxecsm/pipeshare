@@ -1,13 +1,81 @@
 import crypto from 'node:crypto';
+import fs from 'node:fs';
 import http from 'node:http';
+import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import express from 'express';
 import QRCode from 'qrcode';
 import { Server } from 'socket.io';
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
+// 用 SCRIPT_DIR 而不是 __dirname：pkg 打包出的 ESM 代码里会自带 __dirname，
+// 重复声明会导致运行时 SyntaxError。
+const SCRIPT_DIR = path.dirname(fileURLToPath(import.meta.url));
+
+/* -------------------------------------------------------------------------- */
+/*                                  配置文件                                   */
+/* -------------------------------------------------------------------------- */
+
+// 打包成可执行文件后 SCRIPT_DIR 指向虚拟快照，只有 exe 所在目录才是真实可读的；
+// 双击运行时读取 exe 同目录的 .env，源码运行时读取项目根目录的 .env。
+const APP_DIR = process.pkg ? path.dirname(process.execPath) : SCRIPT_DIR;
+
+/**
+ * 读取 .env 并写入 process.env。
+ * 已存在的环境变量优先级更高，不会被文件覆盖；语法与 dotenv 基本一致：
+ * 支持空行、`#` 注释、`export KEY=VALUE`、单双引号包裹的值。
+ */
+function loadEnvFile(filePath) {
+  let raw;
+  try {
+    raw = fs.readFileSync(filePath, 'utf8');
+  } catch {
+    return false; // 没有配置文件是正常情况
+  }
+
+  for (const line of raw.replace(/^\uFEFF/, '').split(/\r?\n/)) {
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith('#')) continue;
+
+    const matched = /^(?:export\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.*)$/.exec(
+      trimmed,
+    );
+    if (!matched) continue;
+
+    const [, key, rawValue] = matched;
+    if (Object.prototype.hasOwnProperty.call(process.env, key)) continue;
+    process.env[key] = parseEnvValue(rawValue);
+  }
+
+  return true;
+}
+
+function parseEnvValue(rawValue) {
+  const value = rawValue.trim();
+
+  // 双引号：支持 \n \r \t \" 转义；引号之后的内容（例如行内注释）忽略
+  const doubleQuoted = /^"((?:\\.|[^"\\])*)"/.exec(value);
+  if (doubleQuoted) {
+    return doubleQuoted[1]
+      .replace(/\\n/g, '\n')
+      .replace(/\\r/g, '\r')
+      .replace(/\\t/g, '\t')
+      .replace(/\\"/g, '"');
+  }
+
+  // 单引号：原样保留，不做转义
+  const singleQuoted = /^'([^']*)'/.exec(value);
+  if (singleQuoted) return singleQuoted[1];
+
+  // 未加引号时，` #` 之后视为行内注释
+  const commentAt = value.indexOf(' #');
+  return commentAt === -1 ? value : value.slice(0, commentAt).trim();
+}
+
+const ENV_FILE = path.join(APP_DIR, '.env');
+if (loadEnvFile(ENV_FILE)) {
+  console.log(`📄 已读取配置文件: ${ENV_FILE}`);
+}
 
 /* -------------------------------------------------------------------------- */
 /*                                  配置常量                                   */
@@ -388,7 +456,7 @@ app.use((req, res, next) => {
 
 // 静态资源：HTML 每次校验，避免更新后浏览器继续跑旧页面
 app.use(
-  express.static(path.join(__dirname, 'public'), {
+  express.static(path.join(SCRIPT_DIR, 'public'), {
     etag: true,
     maxAge: 0,
     setHeaders(res, filePath) {
@@ -1021,6 +1089,45 @@ process.on('unhandledRejection', (err) => {
 server.headersTimeout = 65 * 1000;
 server.keepAliveTimeout = 72 * 1000;
 
+function formatUrl(host, port) {
+  return `http://${host.includes(':') ? `[${host}]` : host}:${port}`;
+}
+
+/**
+ * 收集启动后可直接访问的地址。
+ * 绑定到通配地址（0.0.0.0 / ::）时列出 localhost 和所有网卡地址，
+ * 否则只列出实际绑定的那个地址。
+ */
+function collectListenUrls(port, host) {
+  const wildcard = !host || host === '0.0.0.0' || host === '::';
+  if (!wildcard) return [{ url: formatUrl(host, port), label: '' }];
+
+  const seen = new Set();
+  const ipv4 = [];
+  const ipv6 = [];
+  const push = (bucket, url, label) => {
+    if (seen.has(url)) return;
+    seen.add(url);
+    bucket.push({ url, label });
+  };
+
+  push(ipv4, formatUrl('localhost', port), '');
+  for (const [name, infos] of Object.entries(os.networkInterfaces())) {
+    for (const info of infos || []) {
+      // 跳过回环地址，以及需要 scope id 才能访问的 IPv6 链路本地地址
+      if (info.internal) continue;
+      const isIPv6 = info.family === 'IPv6';
+      if (isIPv6 && /^fe80:/i.test(info.address)) continue;
+      push(isIPv6 ? ipv6 : ipv4, formatUrl(info.address, port), name);
+    }
+  }
+  // IPv4 地址更常用，排前面；IPv6 地址放在后面
+  return ipv4.concat(ipv6);
+}
+
 server.listen(PORT, HOST, () => {
-  console.log(`🚀 PipeShare 已启动: http://localhost:${PORT}`);
+  console.log('🚀 PipeShare 已启动，可通过以下地址访问:');
+  for (const { url, label } of collectListenUrls(PORT, HOST)) {
+    console.log(label ? `   - ${url}  (${label})` : `   - ${url}`);
+  }
 });
