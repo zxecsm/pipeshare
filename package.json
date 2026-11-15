@@ -33,7 +33,8 @@
   },
   "pkg": {
     "assets": [
-      "public/**/*"
+      "public/**/*",
+      "node_modules/socket.io/client-dist/**/*"
     ],
     "fallbackToSource": true,
     "compress": "GZip"
