@@ -1,0 +1,25 @@
+# PipeShare Docker Compose 部署配置
+#
+#   docker compose up -d      # 启动
+#   docker compose logs -f    # 查看日志（启动时会打印所有可访问地址）
+#   docker compose down       # 停止
+#
+# 启动后访问 http://服务器地址:3000 ，输入昵称后创建房间即可。
+services:
+  pipeshare:
+    image: 'ghcr.io/zxecsm/pipeshare:latest'
+    container_name: pipeshare
+    restart: unless-stopped
+    ports:
+      # 宿主机端口:容器端口，右侧需与下面 environment 里的 PORT 保持一致
+      - '3000:3000'
+    environment:
+      # 容器时区，只影响日志时间，不影响功能
+      - TZ=Asia/Shanghai
+      # 监听端口（容器内），默认 3000；修改后要同步改上面的 ports 映射
+      - PORT=3000
+      # 监听地址（容器内），默认 0.0.0.0；改成 127.0.0.1 会导致宿主机无法访问
+      - HOST=0.0.0.0
+      # 位于 Nginx / Caddy 等反向代理后设为 1，限流才能按真实客户端 IP 计算；
+      # 未使用反向代理时保持注释，避免客户端伪造 X-Forwarded-For 绕过限流
+      # - TRUST_PROXY=1

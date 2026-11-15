@@ -3,10 +3,17 @@
   "version": "1.0.0",
   "description": "私有房间隔离的 WebSocket 分片文件快传工具",
   "main": "server.js",
+  "bin": "server.js",
   "scripts": {
     "start": "node server.js",
     "dev": "node --watch server.js",
-    "test": "node test/smoke.js"
+    "test": "node test/smoke.js",
+    "build": "npm run build:win && npm run build:linux && npm run build:linux-arm64 && npm run build:macos && npm run build:macos-arm64",
+    "build:win": "pkg . --targets node22-win-x64 --output dist/pipeshare-win-x64.exe",
+    "build:linux": "pkg . --targets node22-linux-x64 --output dist/pipeshare-linux-x64",
+    "build:linux-arm64": "pkg . --targets node22-linux-arm64 --output dist/pipeshare-linux-arm64",
+    "build:macos": "pkg . --targets node22-macos-x64 --output dist/pipeshare-macos-x64",
+    "build:macos-arm64": "pkg . --targets node22-macos-arm64 --output dist/pipeshare-macos-arm64"
   },
   "keywords": [],
   "author": "",
@@ -21,6 +28,14 @@
     "socket.io": "^4.8.4"
   },
   "devDependencies": {
+    "@yao-pkg/pkg": "^6.25.0",
     "socket.io-client": "^4.8.4"
+  },
+  "pkg": {
+    "assets": [
+      "public/**/*"
+    ],
+    "fallbackToSource": true,
+    "compress": "GZip"
   }
 }
