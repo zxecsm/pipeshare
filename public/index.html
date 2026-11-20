@@ -37,6 +37,8 @@
         --log-text: #39ff14;
         --shadow: 0 10px 30px rgba(0, 0, 0, 0.05);
         --modal-overlay: rgba(0, 0, 0, 0.4);
+        --scrollbar-thumb: rgba(127, 140, 141, 0.35);
+        --scrollbar-thumb-hover: rgba(127, 140, 141, 0.55);
       }
 
       @media (prefers-color-scheme: dark) {
@@ -55,6 +57,8 @@
           --log-text: #10b981;
           --shadow: 0 10px 30px rgba(0, 0, 0, 0.3);
           --modal-overlay: rgba(0, 0, 0, 0.6);
+          --scrollbar-thumb: rgba(148, 163, 184, 0.35);
+          --scrollbar-thumb-hover: rgba(148, 163, 184, 0.55);
         }
       }
 
@@ -251,6 +255,50 @@
         font-size: 0.78rem;
         color: var(--text-muted);
         padding-bottom: 12px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        flex-wrap: wrap;
+        gap: 8px;
+      }
+      .footer-note .dot-sep {
+        opacity: 0.5;
+      }
+      .repo-link {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        color: var(--text-muted);
+        text-decoration: none;
+        font-weight: 600;
+        border-radius: 30px;
+        transition: color 0.2s, background-color 0.2s;
+      }
+      .repo-link svg {
+        width: 15px;
+        height: 15px;
+        fill: currentColor;
+        flex: 0 0 auto;
+      }
+      .repo-link:hover {
+        color: var(--primary-color);
+      }
+      .repo-link:focus-visible {
+        outline: 2px solid var(--primary-color);
+        outline-offset: 3px;
+      }
+      /* 登录页品牌行右上角的项目入口 */
+      .brand .repo-link {
+        margin-left: auto;
+        align-self: flex-start;
+        padding: 6px 12px;
+        font-size: 0.75rem;
+        border: 1px solid var(--border-color);
+        background: var(--bg-main);
+      }
+      .brand .repo-link:hover {
+        border-color: var(--primary-color);
+        background: rgba(0, 112, 243, 0.08);
       }
 
       /* --- 房间信息卡片 --- */
@@ -405,10 +453,27 @@
         cursor: pointer;
         margin: 0;
       }
+      /* 覆盖全局 button:hover 的蓝底，否则灰字压在深蓝上几乎看不清 */
+      .tab-btn:hover:not(:disabled) {
+        background-color: rgba(0, 112, 243, 0.1);
+        color: var(--text-main);
+        transform: none;
+      }
+      .tab-btn:active:not(:disabled) {
+        transform: none;
+      }
+      .tab-btn:focus-visible {
+        outline: 2px solid var(--primary-color);
+        outline-offset: 2px;
+      }
       .tab-btn.active {
         background: var(--bg-card);
         color: var(--primary-color);
         box-shadow: var(--shadow);
+      }
+      .tab-btn.active:hover:not(:disabled) {
+        background-color: var(--bg-card);
+        color: var(--primary-color);
       }
       .tab-content {
         display: none;
@@ -631,13 +696,43 @@
         line-height: 1.6;
         overflow-wrap: anywhere;
         word-break: break-word;
+        /* 深色日志区用更浅的滑块 */
+        --scrollbar-thumb: rgba(255, 255, 255, 0.12);
+        --scrollbar-thumb-hover: rgba(255, 255, 255, 0.25);
       }
-      .log::-webkit-scrollbar {
+
+      /* --- 全站细滚动条：只保留滑块，去掉上下三角按钮 --- */
+      ::-webkit-scrollbar {
         width: 6px;
+        height: 6px;
       }
-      .log::-webkit-scrollbar-thumb {
-        background: rgba(255, 255, 255, 0.1);
+      ::-webkit-scrollbar-track,
+      ::-webkit-scrollbar-corner {
+        background: transparent;
+      }
+      ::-webkit-scrollbar-thumb {
+        background: var(--scrollbar-thumb);
         border-radius: 3px;
+      }
+      ::-webkit-scrollbar-thumb:hover {
+        background: var(--scrollbar-thumb-hover);
+      }
+      ::-webkit-scrollbar-button {
+        display: none;
+        width: 0;
+        height: 0;
+      }
+
+      /* Firefox 不支持 ::-webkit-scrollbar，用标准属性保持一致的细滚动条 */
+      @supports not selector(::-webkit-scrollbar) {
+        html,
+        .log,
+        .modal-box,
+        .modal-content,
+        .qr-url {
+          scrollbar-width: thin;
+          scrollbar-color: var(--scrollbar-thumb) transparent;
+        }
       }
 
       /* --- 自定义确认模态框样式 --- */
@@ -791,6 +886,11 @@
         .notify-chip.on {
           color: #6ee7b7;
         }
+        /* 深色卡片上用更浅的蓝，保证选中态文字对比度 */
+        .tab-btn.active,
+        .tab-btn.active:hover:not(:disabled) {
+          color: #93c5fd;
+        }
       }
 
       @media (max-width: 420px) {
@@ -803,6 +903,12 @@
         }
         .invite-row {
           flex-direction: column;
+        }
+        .brand .repo-link {
+          padding: 6px 8px;
+        }
+        .brand .repo-link .repo-text {
+          display: none;
         }
         .invite-row button {
           flex: 1 1 auto;
@@ -824,6 +930,20 @@
             <h1>PipeShare</h1>
             <p>私有房间 · WebSocket 分片快传</p>
           </div>
+          <a
+            class="repo-link"
+            href="https://github.com/zxecsm/pipeshare"
+            target="_blank"
+            rel="noopener noreferrer"
+            title="在 GitHub 上查看项目源码"
+          >
+            <svg viewBox="0 0 16 16" aria-hidden="true">
+              <path
+                d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27s1.36.09 2 .27c1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8z"
+              />
+            </svg>
+            <span class="repo-text">GitHub</span>
+          </a>
         </div>
 
         <label for="nickname-input">你的设备昵称</label>
@@ -974,6 +1094,25 @@
       <div class="box">
         <h3>📜 实时传输日志</h3>
         <div id="log" class="log"></div>
+      </div>
+
+      <div class="footer-note">
+        <span>文件全程内存中转 · 不落服务器磁盘</span>
+        <span class="dot-sep">·</span>
+        <a
+          class="repo-link"
+          href="https://github.com/zxecsm/pipeshare"
+          target="_blank"
+          rel="noopener noreferrer"
+          title="在 GitHub 上查看项目源码"
+        >
+          <svg viewBox="0 0 16 16" aria-hidden="true">
+            <path
+              d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27s1.36.09 2 .27c1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8z"
+            />
+          </svg>
+          GitHub 项目源码
+        </a>
       </div>
     </div>
 
@@ -1193,6 +1332,288 @@
           logBox.appendChild(line);
           trimLog();
           logBox.scrollTop = logBox.scrollHeight;
+        }
+
+        /* --------------------------- 文件指纹（断点续传用） --------------------------- */
+
+        const SAMPLE_BYTES = 256;
+        const MIN_SAMPLE_COUNT = 4;
+        const MAX_SAMPLE_COUNT = 100;
+        const fingerprintCache = new WeakMap();
+
+        function bytesToHex(bytes) {
+          let hex = '';
+          for (let i = 0; i < bytes.length; i += 1) {
+            hex += bytes[i].toString(16).padStart(2, '0');
+          }
+          return hex;
+        }
+
+        /** SHA-256 只在安全上下文（HTTPS / localhost）可用 */
+        async function sha256Hex(bytes) {
+          try {
+            if (!window.crypto || !crypto.subtle || !crypto.subtle.digest) {
+              return '';
+            }
+            const digest = await crypto.subtle.digest('SHA-256', bytes);
+            return bytesToHex(new Uint8Array(digest));
+          } catch {
+            return '';
+          }
+        }
+
+        /** 非安全上下文的兜底：FNV-1a 变体，足够区分「是不是同一个文件」 */
+        function fnv1aHex(bytes) {
+          let h1 = 0x811c9dc5;
+          let h2 = (0x01000193 ^ bytes.length) >>> 0;
+          for (let i = 0; i < bytes.length; i += 1) {
+            h1 ^= bytes[i];
+            h1 = Math.imul(h1, 0x01000193);
+            h2 = (h2 + bytes[i] * (i + 1)) >>> 0;
+            h2 = Math.imul(h2 ^ (h2 >>> 13), 0x5bd1e995);
+          }
+          return `${(h1 >>> 0).toString(16).padStart(8, '0')}${(
+            h2 >>> 0
+          )
+            .toString(16)
+            .padStart(8, '0')}`;
+        }
+
+        /**
+         * 采样文件头、随机位置和文件尾，生成稳定的文件指纹。
+         * 大文件只读几百字节，避免为了续传把整个文件扫一遍。
+         */
+        async function fingerprintFile(file) {
+          if (!file) return '';
+          if (fingerprintCache.has(file)) return fingerprintCache.get(file);
+
+          const task = (async () => {
+            try {
+              const size = Math.max(0, Number(file.size) || 0);
+              const read = async (offset) =>
+                new Uint8Array(
+                  await file.slice(offset, offset + SAMPLE_BYTES).arrayBuffer(),
+                );
+
+              let parts;
+              if (size <= SAMPLE_BYTES) {
+                parts = [new Uint8Array(await file.arrayBuffer())];
+              } else {
+                const sampleCount = Math.min(
+                  Math.max(Math.floor(size / 1024), MIN_SAMPLE_COUNT),
+                  MAX_SAMPLE_COUNT,
+                );
+                const maxOffset = size - SAMPLE_BYTES;
+                let seed = size || 1;
+                const rng = () => {
+                  seed = (seed * 9301 + 49297) % 233280;
+                  return seed / 233280;
+                };
+                const offsets = [0];
+                for (let i = 0; i < sampleCount; i += 1) {
+                  offsets.push(
+                    Math.min(Math.floor(rng() * maxOffset), maxOffset),
+                  );
+                }
+                offsets.push(maxOffset);
+                // 并发读取样本，再按固定顺序拼接，指纹结果保持确定
+                parts = await Promise.all(offsets.map(read));
+              }
+
+              const total = parts.reduce((sum, p) => sum + p.byteLength, 8);
+              const merged = new Uint8Array(total);
+              // 把文件大小也混进去，避免前缀相同、长度不同的文件撞指纹
+              new DataView(merged.buffer).setFloat64(0, size);
+              let pos = 8;
+              for (const part of parts) {
+                merged.set(part, pos);
+                pos += part.byteLength;
+              }
+
+              const sha = await sha256Hex(merged);
+              return sha ? `sha256:${sha}` : `sum:${fnv1aHex(merged)}`;
+            } catch {
+              return '';
+            }
+          })();
+
+          fingerprintCache.set(file, task);
+          return task;
+        }
+
+        /* ------------------- 接收端临时存储（OPFS，不支持则内存） ------------------- */
+
+        const RECEIVE_DIR_NAME = 'pipeshare-receive';
+        const RECEIVE_TEMP_TTL = 24 * 60 * 60 * 1000;
+        let opfsDirPromise = null;
+
+        function getReceiveDir() {
+          if (
+            typeof navigator.storage?.getDirectory !== 'function'
+          ) {
+            return Promise.resolve(null);
+          }
+          if (!opfsDirPromise) {
+            opfsDirPromise = navigator.storage
+              .getDirectory()
+              .then((root) =>
+                root.getDirectoryHandle(RECEIVE_DIR_NAME, { create: true }),
+              )
+              .catch(() => null);
+          }
+          return opfsDirPromise;
+        }
+
+        function receiveStorageKey(file) {
+          const raw = String(file.fileHash || '')
+            .replace(/[^A-Za-z0-9]/g, '')
+            .slice(0, 80);
+          if (!raw) return '';
+          return `recv-${raw}-${Math.max(0, Math.floor(Number(file.fileSize) || 0))}`;
+        }
+
+        /** 兼容新旧浏览器列出目录项 */
+        async function listDirectoryNames(dir) {
+          const names = [];
+          if (typeof dir.keys === 'function') {
+            for await (const name of dir.keys()) names.push(name);
+            return names;
+          }
+          for await (const entry of dir) names.push(entry[0]);
+          return names;
+        }
+
+        async function readFileMeta(dir) {
+          try {
+            const handle = await dir.getFileHandle('meta.json');
+            return JSON.parse(await (await handle.getFile()).text());
+          } catch {
+            return null;
+          }
+        }
+
+        async function writeFileMeta(dir, meta) {
+          try {
+            const handle = await dir.getFileHandle('meta.json', {
+              create: true,
+            });
+            const writable = await handle.createWritable();
+            await writable.write(JSON.stringify(meta));
+            await writable.close();
+          } catch {
+            /* 元数据写入失败只会影响续传，不影响本次接收 */
+          }
+        }
+
+        function chunkFileName(seq) {
+          return `${seq}.bin`;
+        }
+
+        function expectedChunkSize(seq, chunkSize, fileSize) {
+          return Math.max(0, Math.min(chunkSize, fileSize - seq * chunkSize));
+        }
+
+        /**
+         * 分片按序号各自存成小文件：每个分片写完即落盘，
+         * 刷新页面或断线后也能准确知道已经收到哪些分片。
+         * 只有大小正确的分片才算已收；写入中途被打断会留下空文件，需要重传。
+         */
+        async function countCommittedChunks(
+          dir,
+          totalChunks,
+          chunkSize,
+          fileSize,
+        ) {
+          const names = await listDirectoryNames(dir);
+          const present = new Set();
+          for (const name of names) {
+            const match = /^(\d+)\.bin$/.exec(name);
+            if (!match) continue;
+            const seq = Number(match[1]);
+            if (Number.isInteger(seq) && seq >= 0 && seq < totalChunks) {
+              present.add(seq);
+            }
+          }
+
+          let seq = 0;
+          while (seq < totalChunks && present.has(seq)) {
+            try {
+              const file = await (await dir.getFileHandle(chunkFileName(seq))).getFile();
+              if (file.size !== expectedChunkSize(seq, chunkSize, fileSize)) {
+                break;
+              }
+            } catch {
+              break;
+            }
+            seq += 1;
+          }
+          return seq;
+        }
+
+        async function clearReceiveDirectory(root, key) {
+          try {
+            await root.removeEntry(key, { recursive: true });
+          } catch {
+            /* 目录可能不存在 */
+          }
+        }
+
+        /** 只读取续传信息，用于在邀请弹窗里提前告知用户 */
+        async function peekResumeOffset(file) {
+          const root = await getReceiveDir();
+          if (!root) return 0;
+          const key = receiveStorageKey(file);
+          if (!key) return 0;
+          try {
+            const dir = await root.getDirectoryHandle(key);
+            const meta = await readFileMeta(dir);
+            const chunkSize = Math.max(1, Number(file.chunkSize) || 0);
+            if (
+              !meta ||
+              meta.chunkSize !== chunkSize ||
+              meta.fileSize !== file.fileSize
+            ) {
+              return 0;
+            }
+            const totalChunks = Math.max(
+              1,
+              Math.ceil((Number(file.fileSize) || 1) / chunkSize),
+            );
+            const fileSize = Number(file.fileSize) || 0;
+            const committed = await countCommittedChunks(
+              dir,
+              totalChunks,
+              chunkSize,
+              fileSize,
+            );
+            return Math.min(committed * chunkSize, fileSize);
+          } catch {
+            return 0;
+          }
+        }
+
+        async function pruneReceiveStorage() {
+          const root = await getReceiveDir();
+          if (!root) return;
+          try {
+            const names = await listDirectoryNames(root);
+            const now = Date.now();
+            for (const name of names) {
+              if (!name.startsWith('recv-')) continue;
+              let dir;
+              try {
+                dir = await root.getDirectoryHandle(name);
+              } catch {
+                continue;
+              }
+              const meta = await readFileMeta(dir);
+              const updatedAt = Number(meta?.updatedAt || 0);
+              if (updatedAt && now - updatedAt < RECEIVE_TEMP_TTL) continue;
+              await clearReceiveDirectory(root, name);
+            }
+          } catch {
+            /* 列目录失败时跳过清理 */
+          }
         }
 
         /* ---------------------------- 传输进度卡片 ---------------------------- */
@@ -2074,7 +2495,8 @@
           sendStates.clear();
           receiveStates.forEach((state) => {
             state.failed = true;
-            state.chunks = [];
+            // 已写入 OPFS 的部分保留下来，重连后同一文件可以续传
+            void commitReceiveState(state);
           });
           receiveStates.clear();
           receiveBatches.clear();
@@ -2395,7 +2817,7 @@
           renderSelectedFiles();
         };
 
-        sendBtn.onclick = () => {
+        sendBtn.onclick = async () => {
           const targetId = targetSelect.value;
 
           if (!joined) return showAlert('请先加入一个房间。', '🔒');
@@ -2410,11 +2832,25 @@
           const batchTotal = files.length;
           const targetName = memberName(targetId);
 
+          // 采样计算文件指纹，作为接收端临时文件的唯一标识，用于断点续传
+          sendBtn.disabled = true;
+          printLog('正在计算文件指纹…');
+          const hashes = await Promise.all(files.map((file) => fingerprintFile(file)));
+
+          if (!joined || !connected) {
+            refreshSendButtons();
+            return showAlert('连接已断开，请重新发送。', '📡');
+          }
+
           files.forEach((file, index) => {
             const clientTaskId = randomId();
             // 文件对象保存在内存里，后续推流靠 clientTaskId 精确匹配，
             // 即使用户立刻改选别的文件也不会串包。
-            pendingSends.set(clientTaskId, { file, fileName: file.name });
+            pendingSends.set(clientTaskId, {
+              file,
+              fileName: file.name,
+              fileHash: hashes[index] || '',
+            });
             taskLabels.set(clientTaskId, file.name);
             setTransfer(clientTaskId, {
               name: file.name,
@@ -2429,6 +2865,7 @@
               fileName: file.name,
               fileType: file.type,
               fileSize: file.size,
+              fileHash: hashes[index] || '',
               clientTaskId,
               batchId,
               batchTotal,
@@ -2535,30 +2972,153 @@
         }
 
         /**
-         * 所有文件统一先接收进内存（分片数组），全部到齐后再合并成 Blob
-         * 并触发浏览器下载，不再请求磁盘写入权限。
+         * 优先用 OPFS 临时文件接收，浏览器不支持时退回内存分片数组。
+         * 两者都在全部到齐后触发下载。
          */
         function createReceiveState(file) {
           return {
             taskToken: file.taskToken,
             clientTaskId: file.clientTaskId,
             key: file.clientTaskId || file.taskToken,
+            file,
             fileName: file.fileName,
             fileType: file.fileType,
             fileSize: Math.max(0, Number(file.fileSize) || 0),
+            chunkSize: Math.max(1, Number(file.chunkSize) || 512 * 1024),
             batchId: file.batchId || `single:${file.taskToken}`,
+            backend: 'memory',
+            opfs: null,
+            storageKey: '',
             chunks: [],
             chain: Promise.resolve(),
+            receivedSeqs: new Set(),
             received: 0,
             failed: false,
             started: false,
+            committed: false,
           };
         }
 
-        function releaseReceiveState(state) {
+        /** 已连续落盘的分片数（从 0 开始），用于续传起点 */
+        function committedChunkCount(state) {
+          let seq = 0;
+          while (state.receivedSeqs.has(seq)) seq += 1;
+          return seq;
+        }
+
+        async function prepareReceiveStorage(state) {
+          const root = await getReceiveDir();
+          const key = root ? receiveStorageKey(state.file) : '';
+          if (!root || !key || !state.fileSize) {
+            state.backend = 'memory';
+            return 0;
+          }
+
+          state.storageKey = key;
+          const totalChunks = Math.max(
+            1,
+            Math.ceil(state.fileSize / state.chunkSize),
+          );
+
+          try {
+            let dir = null;
+            try {
+              dir = await root.getDirectoryHandle(key);
+            } catch {
+              dir = null;
+            }
+
+            let meta = dir ? await readFileMeta(dir) : null;
+            const metaMatches =
+              Boolean(meta) &&
+              meta.fileSize === state.fileSize &&
+              meta.chunkSize === state.chunkSize;
+
+            if (dir && !metaMatches) {
+              // 同名临时目录是别的版本留下的，直接重建
+              await clearReceiveDirectory(root, key);
+              dir = null;
+              meta = null;
+            }
+            if (!dir) {
+              dir = await root.getDirectoryHandle(key, { create: true });
+            }
+
+            const resumeChunks = metaMatches
+              ? await countCommittedChunks(
+                  dir,
+                  totalChunks,
+                  state.chunkSize,
+                  state.fileSize,
+                )
+              : 0;
+
+            const nextMeta = {
+              version: 2,
+              fileHash: state.file.fileHash || '',
+              fileName: state.fileName,
+              fileSize: state.fileSize,
+              chunkSize: state.chunkSize,
+              totalChunks,
+              updatedAt: Date.now(),
+            };
+
+            state.backend = 'opfs';
+            state.opfs = { root, dir, key, totalChunks, meta: nextMeta };
+            if (resumeChunks > 0) {
+              for (let i = 0; i < resumeChunks; i += 1) {
+                state.receivedSeqs.add(i);
+              }
+              state.received = Math.min(
+                resumeChunks * state.chunkSize,
+                state.fileSize,
+              );
+            }
+
+            await writeFileMeta(dir, nextMeta);
+            return state.received;
+          } catch (err) {
+            state.backend = 'memory';
+            state.opfs = null;
+            printLog(
+              `临时文件不可用，改为内存接收：${(err && err.message) || '未知错误'}`,
+              'error',
+            );
+            return 0;
+          }
+        }
+
+        /** 收尾临时存储；keepPartial=true 时保留已收到的分片以便下次续传 */
+        async function commitReceiveState(state, { keepPartial = true } = {}) {
+          if (!state || state.committed) return;
+          state.committed = true;
+
+          try {
+            await state.chain;
+          } catch {
+            /* 错误已由链路处理 */
+          }
+
+          if (state.backend === 'opfs' && state.opfs) {
+            const { root, dir, key } = state.opfs;
+            const prefix = keepPartial ? committedChunkCount(state) : 0;
+            if (prefix > 0) {
+              await writeFileMeta(dir, {
+                ...state.opfs.meta,
+                updatedAt: Date.now(),
+              });
+            } else {
+              await clearReceiveDirectory(root, key);
+            }
+          }
+
+          state.chunks = [];
+        }
+
+        async function releaseReceiveState(state, options = {}) {
           if (!state) return;
           receiveStates.delete(state.taskToken);
-          state.chunks = [];
+          await commitReceiveState(state, options);
         }
 
         function failReceive(state, err) {
@@ -2570,7 +3130,7 @@
             taskToken: state.taskToken,
             message,
           });
-          releaseReceiveState(state);
+          void releaseReceiveState(state);
           finishReceiveBatchTask(state.taskToken);
         }
 
@@ -2580,17 +3140,40 @@
           if (!state || state.failed) return;
 
           const seq = Number(data.seq);
-          // 串行处理：保证分片按到达顺序进入内存，处理完一片再回 ack
+          // 串行处理：保证分片按到达顺序写入，处理完一片再回 ack
           state.chain = state.chain
             .then(async () => {
               if (state.failed) return;
+              if (!Number.isInteger(seq) || seq < 0) {
+                throw new Error('分片序号无效');
+              }
               const raw = data.data;
               if (raw == null) throw new Error('分片数据为空');
               const bytes =
                 raw instanceof Uint8Array ? raw : new Uint8Array(raw);
 
-              state.chunks.push(bytes);
+              // 续传时可能重发已落盘的分片，直接确认、不重复写入
+              if (state.receivedSeqs.has(seq)) {
+                socket.emit('file-chunk-ack', {
+                  taskToken: state.taskToken,
+                  seq,
+                });
+                return;
+              }
 
+              if (state.backend === 'opfs' && state.opfs) {
+                const handle = await state.opfs.dir.getFileHandle(
+                  chunkFileName(seq),
+                  { create: true },
+                );
+                const writable = await handle.createWritable();
+                await writable.write(bytes);
+                await writable.close();
+              } else {
+                state.chunks.push(bytes);
+              }
+
+              state.receivedSeqs.add(seq);
               state.received += bytes.byteLength;
               socket.emit('file-chunk-ack', {
                 taskToken: state.taskToken,
@@ -2617,17 +3200,54 @@
           }
           if (state.failed) return;
 
-          const blob = new Blob(state.chunks, {
-            type: state.fileType || 'application/octet-stream',
-          });
+          let blob;
+          let cleanupTemp = null;
+          if (state.backend === 'opfs' && state.opfs) {
+            const { root, dir, key, totalChunks } = state.opfs;
+            const parts = [];
+            for (let seq = 0; seq < totalChunks; seq += 1) {
+              let chunkFile;
+              try {
+                chunkFile = await (
+                  await dir.getFileHandle(chunkFileName(seq))
+                ).getFile();
+              } catch {
+                throw new Error(`临时分片缺失（#${seq}），请让对方重新发送。`);
+              }
+              if (
+                chunkFile.size !==
+                expectedChunkSize(seq, state.chunkSize, state.fileSize)
+              ) {
+                throw new Error(`临时分片损坏（#${seq}），请让对方重新发送。`);
+              }
+              parts.push(chunkFile);
+            }
+            // 这里只是把 File（Blob 的引用）串成一个 Blob，浏览器不会把文件内容
+            // 读进 JS 堆：下载时按顺序直接从 OPFS 磁盘文件流式读取。
+            // 真正占内存的只有分片对象本身，不随文件大小增长。
+            blob = new Blob(parts, {
+              type: state.fileType || 'application/octet-stream',
+            });
+            cleanupTemp = () => clearReceiveDirectory(root, key);
+          } else {
+            blob = new Blob(state.chunks, {
+              type: state.fileType || 'application/octet-stream',
+            });
+          }
+
           state.chunks = [];
           receiveStates.delete(taskToken);
 
           const url = URL.createObjectURL(blob);
           triggerBlobDownload(url, state.fileName);
           addManualDownloadLink(url, state.fileName);
-          // 留足时间给手动保存入口，之后释放内存
+          // 留足时间给手动保存入口，之后释放内存 / 清理临时文件
           setTimeout(() => URL.revokeObjectURL(url), 10 * 60 * 1000);
+
+          if (cleanupTemp) {
+            // 等下载入口失效后再清理临时分片
+            setTimeout(cleanupTemp, 10 * 60 * 1000);
+          }
         }
 
         function finishReceiveBatchTask(taskToken) {
@@ -2637,10 +3257,10 @@
           const batch = receiveBatches.get(batchId);
           if (!batch) return;
           if (batch.active === taskToken) batch.active = null;
-          startNextReceive(batchId);
+          void startNextReceive(batchId);
         }
 
-        function startNextReceive(batchId) {
+        async function startNextReceive(batchId) {
           const batch = receiveBatches.get(batchId);
           if (!batch || batch.active) return;
 
@@ -2653,18 +3273,40 @@
           const state = receiveStates.get(taskToken);
           if (!state) {
             // 该文件在排队期间已经失败/取消，直接看下一个
-            startNextReceive(batchId);
+            void startNextReceive(batchId);
             return;
           }
 
           batch.active = taskToken;
-          setTransfer(state.key, { status: '接收中', direction: 'in' });
+          setTransfer(state.key, { status: '准备接收', direction: 'in' });
 
-          // 内存接收不需要额外的落盘准备，直接让发送端开始推分片
+          // 优先打开 OPFS 临时文件，并检查上次中断留下的数据
+          let resumeFrom = 0;
+          try {
+            resumeFrom = await prepareReceiveStorage(state);
+          } catch {
+            resumeFrom = 0;
+          }
+
+          if (state.failed || !receiveStates.has(taskToken)) {
+            batch.active = null;
+            void startNextReceive(batchId);
+            return;
+          }
+
+          if (resumeFrom > 0) {
+            setTransfer(state.key, { loaded: resumeFrom, status: '断点续传' });
+            printLog(
+              `检测到未完成的临时文件，从 ${formatBytes(resumeFrom)} 处继续接收：${state.fileName}`,
+              'success',
+            );
+          }
+
           state.started = true;
           socket.emit('file-start', {
             taskToken,
             clientTaskId: state.clientTaskId,
+            resumeFrom,
           });
         }
 
@@ -2696,20 +3338,31 @@
             .join('\n');
 
           const isLarge = totalSize >= LARGE_FILE_THRESHOLD;
+          const dir = await getReceiveDir();
+          const resumeOffsets = dir
+            ? await Promise.all(files.map((file) => peekResumeOffset(file)))
+            : files.map(() => 0);
+          const hasResume = resumeOffsets.some((offset) => offset > 0);
+          const storageHint = dir
+            ? '接收过程中会写入浏览器临时存储（OPFS），全部到齐后自动下载并清理。'
+            : '当前浏览器不支持临时文件存储，接收过程中会暂存在内存里。';
           const largeHint = isLarge
-            ? '\n\n⚠️ 文件较大：接收期间会暂存在浏览器内存中，全部到齐后自动触发下载，请保持页面在前台并留意内存占用。'
+            ? `\n\n⚠️ 文件较大：${storageHint}请保持页面在前台。`
+            : '';
+          const resumeHint = hasResume
+            ? `\n\n♻️ 检测到上次未完成的接收，同意后会从已接收的位置断点续传。`
             : '';
 
           const title = isMulti
             ? `📁 收到 ${files.length} 个文件`
             : '📁 收到文件传输邀请';
           const message = isMulti
-            ? `来自【${senderName}】的 ${files.length} 个文件：\n\n${listText}\n\n合计 ${formatBytes(totalSize)}\n\n接收后依次暂存到内存，完成后自动下载。若浏览器提示“允许下载多个文件”，请点击允许。${largeHint}`
+            ? `来自【${senderName}】的 ${files.length} 个文件：\n\n${listText}\n\n合计 ${formatBytes(totalSize)}\n\n${storageHint}完成后自动下载。若浏览器提示“允许下载多个文件”，请点击允许。${resumeHint}${largeHint}`
             : `【${senderName}】想给你发送一个文件：\n\n名称：${files[0].fileName}\n大小：${
                 files[0].fileSize
                   ? formatBytes(files[0].fileSize)
                   : '未知大小'
-              }\n\n接收后会先暂存到内存，完成后自动触发下载。${largeHint}`;
+              }\n\n${storageHint}完成后自动触发下载。${resumeHint}${largeHint}`;
 
           printLog(
             isMulti
@@ -2800,7 +3453,7 @@
               : '已同意接收，开始分片传输…',
           );
 
-          startNextReceive(batchId);
+          void startNextReceive(batchId);
         }
 
         socket.on('incoming-file', (data) => {
@@ -2929,6 +3582,13 @@
             1,
             Math.min(64, Number(data.windowSize) || 16),
           );
+          const totalChunks = Math.ceil(file.size / chunkSize);
+          const requestedStart = Number(data.startOffset) || 0;
+          const startSeq = Math.min(
+            Math.max(0, Math.floor(requestedStart / chunkSize)),
+            totalChunks,
+          );
+          const startOffset = Math.min(startSeq * chunkSize, file.size);
 
           const state = {
             taskToken,
@@ -2937,9 +3597,9 @@
             fileName,
             chunkSize,
             windowSize,
-            totalChunks: Math.ceil(file.size / chunkSize),
-            sentSeq: 0,
-            ackedSeq: -1,
+            totalChunks,
+            sentSeq: startSeq,
+            ackedSeq: startSeq - 1,
             inFlight: 0,
             pumping: false,
             aborted: false,
@@ -2950,11 +3610,18 @@
           setTransfer(clientTaskId, {
             name: fileName,
             total: file.size,
-            loaded: 0,
-            status: '推送中',
+            loaded: startOffset,
+            status: startSeq > 0 ? '断点续传' : '推送中',
             direction: 'out',
           });
-          printLog(`对方已同意，开始分片推送：${fileName}`, 'success');
+          if (startSeq > 0) {
+            printLog(
+              `对方已有部分数据，从 ${formatBytes(startOffset)} 处继续推送：${fileName}`,
+              'success',
+            );
+          } else {
+            printLog(`对方已同意，开始分片推送：${fileName}`, 'success');
+          }
           void pumpSend(state);
         });
 
@@ -3043,7 +3710,8 @@
           if (data && data.taskToken) {
             const state = receiveStates.get(data.taskToken);
             if (state) {
-              releaseReceiveState(state);
+              // 保留已落盘的分片，发送方重发同一文件时可以续传
+              void releaseReceiveState(state);
             }
             finishReceiveBatchTask(data.taskToken);
           }
@@ -3080,6 +3748,9 @@
           renderNotifyStatus();
           updateInstallButtons();
           refreshSendButtons();
+
+          // 清理超过 24 小时未继续的接收临时文件
+          void pruneReceiveStorage();
         }
 
         bootstrap();

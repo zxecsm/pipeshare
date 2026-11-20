@@ -181,6 +181,12 @@ function sanitizeFileType(raw) {
     : 'application/octet-stream';
 }
 
+// 文件指纹只用于接收端定位临时文件，限制字符集避免路径注入
+function sanitizeFileHash(raw) {
+  if (typeof raw !== 'string') return '';
+  return raw.replace(/[^A-Za-z0-9:_-]/g, '').slice(0, 96);
+}
+
 function generateRoomCode() {
   for (let attempt = 0; attempt < 50; attempt += 1) {
     let code = '';
@@ -640,6 +646,7 @@ io.on('connection', (socket) => {
         : '';
     try {
       const { targetId, fileName, fileType, fileSize } = data || {};
+      const fileHash = sanitizeFileHash(data?.fileHash);
 
       const room = getRoomOfSocket(socket.id);
       if (!room) {
@@ -738,6 +745,7 @@ io.on('connection', (socket) => {
         fileName: safeName,
         fileType: sanitizeFileType(fileType),
         fileSize: safeSize,
+        fileHash,
         status: 'waiting-receiver',
         bytes: 0,
         nextSeq: 0,
@@ -777,6 +785,8 @@ io.on('connection', (socket) => {
         fileName: task.fileName,
         fileType: task.fileType,
         fileSize: task.fileSize,
+        fileHash: task.fileHash,
+        chunkSize: CHUNK_SIZE,
         senderId: socket.id,
         senderName: sender ? sender.name : '未知设备',
         expiresAt: Date.now() + INVITE_TTL,
@@ -874,9 +884,21 @@ io.on('connection', (socket) => {
     task.status = 'transferring';
     task.startedAt = Date.now();
     task.lastActivity = Date.now();
-    task.bytes = 0;
-    task.nextSeq = 0;
-    task.ackedSeq = -1;
+
+    // 断点续传：接收方会带上已完整落盘的字节数，必须是分片大小的整数倍，
+    // 服务端从该位置开始计数，发送端也从对应 seq 开始推流。
+    const requestedResume = Number(data?.resumeFrom);
+    let resumeFrom =
+      Number.isFinite(requestedResume) && requestedResume > 0
+        ? Math.floor(requestedResume)
+        : 0;
+    resumeFrom = Math.min(resumeFrom, task.fileSize);
+    resumeFrom -= resumeFrom % CHUNK_SIZE;
+
+    task.resumeFrom = resumeFrom;
+    task.bytes = resumeFrom;
+    task.nextSeq = resumeFrom / CHUNK_SIZE;
+    task.ackedSeq = task.nextSeq - 1;
     task.lastProgressAt = 0;
 
     io.to(task.senderId).emit('start-upload-now', {
@@ -886,6 +908,7 @@ io.on('connection', (socket) => {
       fileSize: task.fileSize,
       chunkSize: CHUNK_SIZE,
       windowSize: CHUNK_WINDOW,
+      startOffset: resumeFrom,
     });
 
     startStallWatch(task);
