@@ -355,7 +355,7 @@ async function main() {
     const swBody = swRes.body.toString('utf8');
     assert.match(swBody, /CACHE_NAME/);
     assert.match(swBody, /notificationclick/);
-    assert.match(swBody, /pipeshare-shell-v5/);
+    assert.match(swBody, /pipeshare-shell-v6/);
     assert.match(swRes.headers['cache-control'] || '', /no-cache/);
 
     const iconRes = await httpGet(`${BASE}/icons/icon-512.png`);
@@ -613,6 +613,93 @@ async function main() {
 
     const qrBad = await httpGet(`${BASE}/api/qr`);
     assert.strictEqual(qrBad.status, 400);
+
+    /* ------------------------------ 房间对讲（PTT） ------------------------------ */
+    // 申请话筒：房间内所有人都应收到授权通知
+    const aliceGranted = once(alice, 'ptt:granted');
+    const bobSeesGrant = once(bob, 'ptt:granted');
+    alice.emit('ptt:request');
+    const [grantSelf, grantPeer] = await Promise.all([
+      aliceGranted,
+      bobSeesGrant,
+    ]);
+    assert.strictEqual(grantSelf.holderId, alice.id);
+    assert.strictEqual(grantSelf.holderName, 'Alice');
+    assert.strictEqual(grantPeer.holderId, alice.id);
+    assert.ok(grantSelf.maxHoldMs > 0, '应下发单次对讲时长上限');
+
+    // 同一时间只允许一个人占用话筒
+    const bobBusy = once(bob, 'ptt:busy');
+    bob.emit('ptt:request');
+    const busyPayload = await bobBusy;
+    assert.strictEqual(busyPayload.holderId, alice.id);
+    assert.strictEqual(busyPayload.holderName, 'Alice');
+
+    // 语音分片经同一房间的 WebSocket 实时转发（不依赖 WebRTC / STUN / TURN）
+    const pcm = new Int16Array(240);
+    pcm[0] = 1234;
+    const audioRelay = once(bob, 'ptt:audio');
+    alice.emit('ptt:audio', { seq: 7, sampleRate: 16000, data: pcm.buffer });
+    const relayedAudio = await audioRelay;
+    assert.strictEqual(relayedAudio.holderId, alice.id);
+    assert.strictEqual(relayedAudio.seq, 7);
+    assert.strictEqual(relayedAudio.sampleRate, 16000);
+    const relayedBytes = Buffer.from(relayedAudio.data);
+    assert.strictEqual(relayedBytes.byteLength, pcm.byteLength);
+    assert.strictEqual(relayedBytes.readInt16LE(0), 1234);
+
+    // 中途加入的设备能立刻看到当前是谁拿着话筒
+    const dave = await connectClient();
+    sockets.push(dave);
+    const daveStatePromise = once(dave, 'ptt:state');
+    dave.emit('room:join', { roomCode: room.code, nickname: 'Dave' });
+    const daveState = await daveStatePromise;
+    assert.strictEqual(daveState.holderId, alice.id, '新设备应看到当前话筒持有者');
+
+    // 非持有人偷发 / 超长分片 / 奇数字节：服务端都必须丢弃，且不能跨房间泄漏
+    const receivedByBob = [];
+    const receivedByCarol = [];
+    const onBobAudio = (payload) => receivedByBob.push(payload);
+    const onCarolAudio = (payload) => receivedByCarol.push(payload);
+    bob.on('ptt:audio', onBobAudio);
+    carol.on('ptt:audio', onCarolAudio);
+
+    bob.emit('ptt:audio', {
+      seq: 0,
+      sampleRate: 16000,
+      data: new Int16Array(240).buffer,
+    });
+    alice.emit('ptt:audio', { seq: 8, data: new Int16Array(6000).buffer });
+    alice.emit('ptt:audio', { seq: 9, data: new Uint8Array(3).buffer });
+    await wait(300);
+    assert.strictEqual(receivedByBob.length, 0, '非法语音分片不应被转发');
+    assert.strictEqual(receivedByCarol.length, 0, '语音不应跨房间泄漏');
+
+    bob.off('ptt:audio', onBobAudio);
+    carol.off('ptt:audio', onCarolAudio);
+
+    // 松开按钮释放话筒，房间内所有人都会收到通知
+    const bobReleased = once(bob, 'ptt:released');
+    alice.emit('ptt:release');
+    const releasePayload = await bobReleased;
+    assert.strictEqual(releasePayload.holderId, alice.id);
+    assert.strictEqual(releasePayload.reason, 'released');
+
+    // 话筒空出来后其他人可以立刻拿到
+    const daveGranted = once(dave, 'ptt:granted');
+    dave.emit('ptt:request');
+    const daveGrantSelf = await daveGranted;
+    assert.strictEqual(daveGrantSelf.holderId, dave.id);
+
+    // 说话人掉线时服务端自动收回话筒
+    const daveId = dave.id;
+    const aliceSeesRelease = once(alice, 'ptt:released');
+    const bobSeesRelease = once(bob, 'ptt:released');
+    dave.close();
+    const autoRelease = await aliceSeesRelease;
+    assert.strictEqual(autoRelease.holderId, daveId);
+    assert.strictEqual(autoRelease.reason, 'left');
+    await bobSeesRelease;
 
     /* ------------------------------ 退出房间 ------------------------------ */
     const left = once(bob, 'room:left');

@@ -1,7 +1,7 @@
 {
   "name": "pipeshare",
   "version": "1.0.0",
-  "description": "私有房间隔离的 WebSocket 分片文件快传工具",
+  "description": "私有房间隔离的 WebSocket 分片文件快传与实时语音对讲工具",
   "main": "server.js",
   "bin": "server.js",
   "scripts": {

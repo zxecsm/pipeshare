@@ -525,6 +525,121 @@
         margin-left: 8px;
       }
 
+      /* --- 房间对讲（按住说话） --- */
+      .ptt-btn {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 10px;
+        padding: 20px 16px;
+        border-radius: 16px;
+        font-size: 1.05rem;
+        letter-spacing: 0.04em;
+        touch-action: none;
+        user-select: none;
+        -webkit-user-select: none;
+        -webkit-touch-callout: none;
+      }
+      .ptt-btn .ptt-icon {
+        font-size: 1.5rem;
+        line-height: 1;
+      }
+      .ptt-btn:active:not(:disabled) {
+        transform: scale(0.98);
+      }
+      .ptt-btn.requesting {
+        opacity: 0.75;
+      }
+      .ptt-btn.speaking,
+      .ptt-btn.speaking:hover:not(:disabled) {
+        background-color: var(--danger-color);
+        animation: ptt-pulse 1.6s ease-out infinite;
+      }
+      .ptt-btn.speaking:active:not(:disabled) {
+        transform: none;
+      }
+      @keyframes ptt-pulse {
+        0% {
+          box-shadow: 0 0 0 0 rgba(231, 76, 60, 0.45);
+        }
+        70%,
+        100% {
+          box-shadow: 0 0 0 14px rgba(231, 76, 60, 0);
+        }
+      }
+      .ptt-meter {
+        height: 6px;
+        border-radius: 6px;
+        background: var(--bg-main);
+        overflow: hidden;
+        margin: 12px 0 0;
+      }
+      .ptt-meter i {
+        display: block;
+        width: 0;
+        height: 100%;
+        border-radius: inherit;
+        background: var(--primary-color);
+        transition: width 0.08s linear;
+      }
+      .ptt-live {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        margin-top: 12px;
+        padding: 10px 12px;
+        border-radius: 10px;
+        background: var(--bg-main);
+        font-size: 0.88rem;
+      }
+      .ptt-live-text {
+        flex: 1;
+        min-width: 0;
+        overflow-wrap: anywhere;
+      }
+      .ptt-live button {
+        flex: 0 0 auto;
+        width: auto;
+        margin: 0;
+        padding: 6px 10px;
+      }
+      .ptt-wave {
+        display: inline-flex;
+        align-items: center;
+        gap: 3px;
+        height: 16px;
+        flex: 0 0 auto;
+      }
+      .ptt-wave i {
+        display: block;
+        width: 3px;
+        height: 100%;
+        border-radius: 2px;
+        background: var(--primary-color);
+        animation: ptt-wave 1s ease-in-out infinite;
+      }
+      .ptt-wave i:nth-child(1) {
+        animation-delay: 0s;
+      }
+      .ptt-wave i:nth-child(2) {
+        animation-delay: 0.18s;
+      }
+      .ptt-wave i:nth-child(3) {
+        animation-delay: 0.36s;
+      }
+      @keyframes ptt-wave {
+        0%,
+        100% {
+          transform: scaleY(0.35);
+        }
+        50% {
+          transform: scaleY(1);
+        }
+      }
+      #ptt-box .hint {
+        margin-top: 14px;
+      }
+
       /* --- 已选文件列表 --- */
       .selected-files {
         display: flex;
@@ -1037,6 +1152,39 @@
         <div id="devices" class="device-list"></div>
       </div>
 
+      <div class="box" id="ptt-box">
+        <h3>
+          <span>🎙️ 房间对讲</span>
+          <span class="device-tag" id="ptt-status">空闲</span>
+        </h3>
+
+        <button id="ptt-btn" class="ptt-btn" type="button" aria-label="按住说话">
+          <span class="ptt-icon" aria-hidden="true">🎙️</span>
+          <span class="ptt-label" id="ptt-btn-label">按住说话</span>
+        </button>
+
+        <div class="ptt-meter" id="ptt-meter" aria-hidden="true">
+          <i id="ptt-meter-bar"></i>
+        </div>
+
+        <div class="ptt-live hidden" id="ptt-live">
+          <span class="ptt-wave" aria-hidden="true"><i></i><i></i><i></i></span>
+          <span class="ptt-live-text" id="ptt-live-text">正在接收语音…</span>
+          <button
+            id="ptt-audio-unlock"
+            class="btn-ghost btn-small hidden"
+            type="button"
+          >
+            🔈 开启声音
+          </button>
+        </div>
+
+        <p class="hint" id="ptt-hint">
+          按住按钮说话，房间内所有设备都能实时听到，同一时间只有一人在讲；松开按钮结束。语音经现有
+          WebSocket 实时转发，无需额外配置。
+        </p>
+      </div>
+
       <div class="box">
         <h3>📤 实时分片传输</h3>
 
@@ -1180,6 +1328,14 @@
         const copyInviteBtn = $('copy-invite-btn');
         const showQrBtn = $('show-qr-btn');
 
+        const pttBtn = $('ptt-btn');
+        const pttBtnLabel = $('ptt-btn-label');
+        const pttStatusEl = $('ptt-status');
+        const pttMeterBar = $('ptt-meter-bar');
+        const pttLive = $('ptt-live');
+        const pttLiveText = $('ptt-live-text');
+        const pttAudioUnlockBtn = $('ptt-audio-unlock');
+
         const logBox = $('log');
         const targetSelect = $('target-device');
         const fileInput = $('file-input');
@@ -1250,6 +1406,32 @@
         let wakeLockFailed = false;
 
         let deferredInstallPrompt = null;
+
+        // 对讲机状态：服务端保证同一时间只有一个话筒持有者
+        const PTT_SAMPLE_RATE = 16000;
+        const PTT_FRAME_MS = 80;
+        const PTT_FRAME_SAMPLES = (PTT_SAMPLE_RATE * PTT_FRAME_MS) / 1000;
+
+        const ptt = {
+          members: [],
+          holderId: null,
+          holderName: '',
+          maxHoldMs: 60 * 1000,
+          sampleRate: PTT_SAMPLE_RATE,
+          wantTalking: false, // 用户按住了按钮，想占用话筒
+          granted: false, // 已拿到话筒，正在采集并发送语音
+          micState: 'unknown', // 麦克风权限：unknown / granted / denied / prompt
+          stream: null, // 本地麦克风流
+          capture: null, // 采集节点（AudioContext + ScriptProcessor）
+          audioBlocked: false, // 浏览器拦截了自动播放
+        };
+
+        // 收听端播放状态：把收到的 PCM 分片按顺序排进 Web Audio 时间轴
+        const pttPlayback = {
+          ctx: null,
+          nextTime: 0,
+          sources: new Set(),
+        };
 
         const dialogQueue = [];
         let activeDialog = null;
@@ -2334,6 +2516,7 @@
           releaseWakeLock();
           renderNotifyStatus();
           closeQrModal();
+          resetPtt();
         }
 
         function showApp() {
@@ -2447,7 +2630,642 @@
           }
 
           refreshSendButtons();
+          syncPttMembers(members);
         }
+
+        /* ------------------------------ 房间对讲 ------------------------------ */
+
+        function pttLabelOf(id) {
+          const member = ptt.members.find((item) => item.id === id);
+          if (member && member.name) return member.name;
+          if (id === ptt.holderId && ptt.holderName) return ptt.holderName;
+          return '对方';
+        }
+
+        function updatePttUi() {
+          const speaking = ptt.granted;
+          const requesting = !speaking && ptt.wantTalking;
+          const receiving =
+            !speaking && Boolean(ptt.holderId) && ptt.holderId !== selfId;
+
+          pttBtn.classList.toggle('speaking', speaking);
+          pttBtn.classList.toggle('requesting', requesting);
+          pttBtn.disabled = !joined || receiving;
+
+          if (speaking) {
+            pttBtnLabel.textContent = '正在讲话 · 松开结束';
+            pttStatusEl.textContent = '你正在讲话';
+          } else if (requesting) {
+            pttBtnLabel.textContent = '正在申请话筒…';
+            pttStatusEl.textContent = '申请中';
+          } else if (receiving) {
+            pttBtnLabel.textContent = '麦克风被占用';
+            pttStatusEl.textContent = `${pttLabelOf(ptt.holderId)} 讲话中`;
+          } else {
+            pttBtnLabel.textContent = '按住说话';
+            pttStatusEl.textContent = '空闲';
+          }
+
+          pttLive.classList.toggle('hidden', !receiving);
+          if (receiving) {
+            pttLiveText.textContent = `${pttLabelOf(ptt.holderId)} 正在讲话…`;
+          }
+          pttAudioUnlockBtn.classList.toggle(
+            'hidden',
+            !receiving || !ptt.audioBlocked,
+          );
+
+          if (!speaking) pttMeterBar.style.width = '0%';
+        }
+
+        /** 申请话筒：服务端按先到先得授权，抢占失败会收到 ptt:busy */
+        async function requestTalk() {
+          if (!joined) {
+            return showAlert('请先加入房间。', '🚪');
+          }
+          if (!socket.connected) {
+            return showAlert('尚未连接到服务器，请稍候…', '📡');
+          }
+          if (ptt.wantTalking || ptt.granted) return;
+          if (ptt.holderId && ptt.holderId !== selfId) {
+            return showAlert(
+              `${pttLabelOf(ptt.holderId)} 正在讲话，请稍后再试。`,
+              '🎙️',
+              2500,
+            );
+          }
+
+          ptt.wantTalking = true;
+          updatePttUi();
+
+          // 首次使用时先拿到麦克风权限，避免系统授权弹窗打断「按住」手势
+          if (ptt.micState !== 'granted') {
+            try {
+              await ensurePttMic();
+            } catch (err) {
+              ptt.wantTalking = false;
+              updatePttUi();
+              const message =
+                err && (err.name === 'NotAllowedError' || err.name === 'SecurityError')
+                  ? '麦克风权限被拒绝，请在浏览器中允许后重试。'
+                  : `无法开启麦克风：${(err && err.message) || '未知错误'}`;
+              printLog(message, 'error');
+              showAlert(message, '🎙️', 5000);
+              return;
+            }
+            // 授权期间用户可能已经松手
+            if (!ptt.wantTalking) {
+              releaseMicStream();
+              return;
+            }
+            if (!socket.connected) {
+              ptt.wantTalking = false;
+              releaseMicStream();
+              updatePttUi();
+              return showAlert('与服务器的连接已断开，请稍后重试。', '📡');
+            }
+          }
+
+          socket.emit('ptt:request');
+        }
+
+        /**
+         * 结束本地讲话（松开按钮 / 断线 / 服务端收回话筒都会走到这里）。
+         * 幂等：重复调用只会让状态更干净，不会重复通知服务端。
+         */
+        function stopTalking({ notifyServer = true } = {}) {
+          const wasGranted = ptt.granted;
+          ptt.wantTalking = false;
+          // 先把不足一帧的语音尾巴发出去，再结束采集
+          stopPttCapture();
+          ptt.granted = false;
+          releaseMicStream();
+          resetPttPlayback();
+          if (notifyServer && wasGranted) socket.emit('ptt:release');
+          updatePttUi();
+        }
+
+        async function startSpeaking() {
+          ptt.granted = true;
+          updatePttUi();
+          printLog('已拿到话筒，正在开启麦克风…');
+
+          if (!window.AudioContext && !window.webkitAudioContext) {
+            return failSpeaking('当前浏览器不支持 Web Audio，无法使用语音对讲。');
+          }
+
+          try {
+            await ensurePttMic();
+            // 用户可能在开启麦克风/授权期间就松手了
+            if (!ptt.granted) {
+              releaseMicStream();
+              socket.emit('ptt:release');
+              return;
+            }
+
+            startPttCapture(ptt.stream);
+            printLog('麦克风已开启，房间内设备可实时收听。', 'success');
+            updatePttUi();
+          } catch (err) {
+            const denied =
+              err &&
+              (err.name === 'NotAllowedError' || err.name === 'SecurityError');
+            failSpeaking(
+              denied
+                ? '麦克风权限被拒绝，请在浏览器地址栏的权限设置中允许后重试。'
+                : (err && err.message) || '无法开启麦克风，请检查设备与权限设置。',
+            );
+          }
+        }
+
+        const PTT_AUDIO_CONSTRAINTS = {
+          audio: {
+            echoCancellation: true,
+            noiseSuppression: true,
+            autoGainControl: true,
+          },
+          video: false,
+        };
+
+        let pttMicPromise = null;
+
+        /** 获取（或复用）本地麦克风流；授权过一次后不再重复弹窗 */
+        function ensurePttMic() {
+          if (ptt.stream) return Promise.resolve(ptt.stream);
+          if (pttMicPromise) return pttMicPromise;
+          if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+            return Promise.reject(
+              new Error(
+                '当前浏览器不支持麦克风，或页面不是 HTTPS / localhost 环境。',
+              ),
+            );
+          }
+
+          pttMicPromise = navigator.mediaDevices
+            .getUserMedia(PTT_AUDIO_CONSTRAINTS)
+            .then((stream) => {
+              ptt.micState = 'granted';
+              ptt.stream = stream;
+              return stream;
+            })
+            .finally(() => {
+              pttMicPromise = null;
+            });
+          return pttMicPromise;
+        }
+
+        function releaseMicStream() {
+          if (ptt.stream) {
+            ptt.stream.getTracks().forEach((track) => track.stop());
+            ptt.stream = null;
+          }
+        }
+
+        function failSpeaking(message) {
+          printLog(message, 'error');
+          showAlert(message, '🎙️', 5000);
+          stopTalking();
+        }
+
+        /* ---------------------- 说话端：麦克风采集与分片发送 ---------------------- */
+
+        /** 线性插值重采样，把设备采样率（常见 44.1k / 48k）统一降到 16k */
+        function downsamplePcm(input, fromRate, toRate) {
+          if (fromRate === toRate) return input;
+          const ratio = fromRate / toRate;
+          const length = Math.max(1, Math.floor(input.length / ratio));
+          const output = new Float32Array(length);
+          for (let i = 0; i < length; i += 1) {
+            const position = i * ratio;
+            const index = Math.floor(position);
+            const fraction = position - index;
+            const current = input[index] || 0;
+            const next = input[index + 1] == null ? current : input[index + 1];
+            output[i] = current + (next - current) * fraction;
+          }
+          return output;
+        }
+
+        function emitPttFrame(capture, samples, length) {
+          if (length <= 0) return;
+          const pcm = new Int16Array(length);
+          for (let i = 0; i < length; i += 1) {
+            const value = Math.max(-1, Math.min(1, samples[i]));
+            pcm[i] = value < 0 ? value * 0x8000 : value * 0x7fff;
+          }
+          socket.emit('ptt:audio', {
+            seq: capture.seq,
+            sampleRate: PTT_SAMPLE_RATE,
+            data: pcm.buffer,
+          });
+          capture.seq += 1;
+        }
+
+        /**
+         * 麦克风 → 16kHz / 16bit PCM，攒满 80ms 就经 WebSocket 发一帧。
+         * 采集节点必须连到 destination 才会持续触发，这里用 0 增益避免把声音放出来。
+         */
+        function startPttCapture(stream) {
+          const AudioCtx = window.AudioContext || window.webkitAudioContext;
+          if (!AudioCtx) {
+            throw new Error('当前浏览器不支持 Web Audio，无法采集语音。');
+          }
+
+          const ctx = new AudioCtx({ latencyHint: 'interactive' });
+          if (ctx.state === 'suspended') void ctx.resume();
+
+          const source = ctx.createMediaStreamSource(stream);
+          const analyser = ctx.createAnalyser();
+          analyser.fftSize = 512;
+          source.connect(analyser);
+
+          const processor = ctx.createScriptProcessor(2048, 1, 1);
+          const mute = ctx.createGain();
+          mute.gain.value = 0;
+          source.connect(processor);
+          processor.connect(mute);
+          mute.connect(ctx.destination);
+
+          const capture = {
+            ctx,
+            source,
+            processor,
+            mute,
+            analyser,
+            acc: new Float32Array(PTT_FRAME_SAMPLES),
+            accLen: 0,
+            seq: 0,
+            meterRaf: 0,
+          };
+          ptt.capture = capture;
+
+          processor.onaudioprocess = (event) => {
+            if (!ptt.granted || ptt.capture !== capture) return;
+            const input = event.inputBuffer.getChannelData(0);
+            const down = downsamplePcm(input, ctx.sampleRate, PTT_SAMPLE_RATE);
+            for (let i = 0; i < down.length; i += 1) {
+              capture.acc[capture.accLen] = down[i];
+              capture.accLen += 1;
+              if (capture.accLen >= PTT_FRAME_SAMPLES) {
+                emitPttFrame(capture, capture.acc, PTT_FRAME_SAMPLES);
+                capture.accLen = 0;
+              }
+            }
+          };
+
+          // 本地麦克风音量条，只是视觉反馈
+          const meterData = new Uint8Array(analyser.frequencyBinCount);
+          const tick = () => {
+            if (ptt.capture !== capture) return;
+            analyser.getByteTimeDomainData(meterData);
+            let peak = 0;
+            for (let i = 0; i < meterData.length; i += 1) {
+              const value = Math.abs(meterData[i] - 128);
+              if (value > peak) peak = value;
+            }
+            const level = Math.min(100, Math.round((peak / 128) * 180));
+            pttMeterBar.style.width = `${level}%`;
+            capture.meterRaf = requestAnimationFrame(tick);
+          };
+          tick();
+        }
+
+        /** 停止采集，并把不足一帧的尾巴发出去，避免最后一个字被吞掉 */
+        function stopPttCapture() {
+          const capture = ptt.capture;
+          if (!capture) return;
+          ptt.capture = null;
+
+          if (capture.accLen > 0) {
+            emitPttFrame(capture, capture.acc, capture.accLen);
+            capture.accLen = 0;
+          }
+
+          try {
+            capture.processor.onaudioprocess = null;
+            capture.source.disconnect();
+            capture.processor.disconnect();
+            capture.mute.disconnect();
+          } catch {
+            /* 节点可能已经断开 */
+          }
+          if (capture.meterRaf) cancelAnimationFrame(capture.meterRaf);
+          try {
+            const closing = capture.ctx.close();
+            if (closing && typeof closing.catch === 'function') {
+              closing.catch(() => {});
+            }
+          } catch {
+            /* 已经关闭过 */
+          }
+          pttMeterBar.style.width = '0%';
+        }
+
+        /* ------------------------- 收听端：PCM 分片播放 ------------------------- */
+
+        function ensurePttPlaybackContext() {
+          const AudioCtx = window.AudioContext || window.webkitAudioContext;
+          if (!AudioCtx) return null;
+          if (!pttPlayback.ctx || pttPlayback.ctx.state === 'closed') {
+            try {
+              pttPlayback.ctx = new AudioCtx({ latencyHint: 'interactive' });
+            } catch {
+              return null;
+            }
+          }
+          return pttPlayback.ctx;
+        }
+
+        /** 恢复播放：必须由用户点击触发，用于绕过浏览器的自动播放限制 */
+        function resumePttPlayback() {
+          const ctx = ensurePttPlaybackContext();
+          if (!ctx) return Promise.resolve(false);
+          const resumed =
+            ctx.state === 'running' ? Promise.resolve() : ctx.resume();
+          return resumed.then(
+            () => {
+              const running = ctx.state === 'running';
+              if (running) {
+                ptt.audioBlocked = false;
+                pttPlayback.nextTime = 0;
+              }
+              updatePttUi();
+              return running;
+            },
+            () => false,
+          );
+        }
+
+        function resetPttPlayback() {
+          pttPlayback.sources.forEach((source) => {
+            try {
+              source.stop();
+            } catch {
+              /* ignore */
+            }
+          });
+          pttPlayback.sources.clear();
+          pttPlayback.nextTime = 0;
+          ptt.audioBlocked = false;
+        }
+
+        /** 按时间轴排队播放，留 120ms 抖动缓冲，网络抖动时不容易断续 */
+        function playPttChunk(pcm, sampleRate) {
+          const ctx = ensurePttPlaybackContext();
+          if (!ctx || !pcm || !pcm.length) return;
+
+          if (ctx.state !== 'running') {
+            if (!ptt.audioBlocked) {
+              ptt.audioBlocked = true;
+              updatePttUi();
+              printLog('浏览器阻止了语音播放，请点击「开启声音」。', 'error');
+            }
+            return;
+          }
+          if (ptt.audioBlocked) {
+            ptt.audioBlocked = false;
+            updatePttUi();
+          }
+
+          const buffer = ctx.createBuffer(
+            1,
+            pcm.length,
+            sampleRate || PTT_SAMPLE_RATE,
+          );
+          const channel = buffer.getChannelData(0);
+          for (let i = 0; i < pcm.length; i += 1) {
+            channel[i] = pcm[i] / 32768;
+          }
+
+          const source = ctx.createBufferSource();
+          source.buffer = buffer;
+          source.connect(ctx.destination);
+
+          const now = ctx.currentTime;
+          if (!pttPlayback.nextTime || pttPlayback.nextTime < now + 0.02) {
+            pttPlayback.nextTime = now + 0.12;
+          } else if (pttPlayback.nextTime > now + 1) {
+            // 页面被后台节流导致积压：丢掉旧时间轴，从当前重新对齐
+            pttPlayback.nextTime = now + 0.12;
+          }
+
+          source.start(pttPlayback.nextTime);
+          pttPlayback.nextTime += buffer.duration;
+          pttPlayback.sources.add(source);
+          source.onended = () => pttPlayback.sources.delete(source);
+        }
+
+        /** Socket.IO 的二进制载荷可能是 ArrayBuffer / TypedArray / Blob */
+        async function pttPayloadToInt16(payload) {
+          let buffer = null;
+          if (payload instanceof ArrayBuffer) {
+            buffer = payload;
+          } else if (ArrayBuffer.isView(payload)) {
+            buffer = payload.buffer.slice(
+              payload.byteOffset,
+              payload.byteOffset + payload.byteLength,
+            );
+          } else if (typeof Blob !== 'undefined' && payload instanceof Blob) {
+            try {
+              buffer = await payload.arrayBuffer();
+            } catch {
+              return null;
+            }
+          }
+          if (!buffer || buffer.byteLength < 2 || buffer.byteLength % 2 !== 0) {
+            return null;
+          }
+          return new Int16Array(buffer);
+        }
+
+        async function handlePttAudio(data) {
+          if (!data || !data.data) return;
+          // 只接受当前话筒持有者的语音，迟到的旧分片直接丢弃
+          if (!ptt.holderId || data.holderId !== ptt.holderId) return;
+          const pcm = await pttPayloadToInt16(data.data);
+          if (!pcm) return;
+          if (!ptt.holderId || data.holderId !== ptt.holderId) return;
+          playPttChunk(pcm, Number(data.sampleRate) || PTT_SAMPLE_RATE);
+        }
+
+        /** 新的一轮讲话开始：清理上一轮的排队音频，并尝试恢复播放上下文 */
+        function preparePttPlayback() {
+          resetPttPlayback();
+          const ctx = ensurePttPlaybackContext();
+          if (!ctx) return;
+          const apply = () => {
+            ptt.audioBlocked = ctx.state !== 'running';
+            updatePttUi();
+          };
+          if (ctx.state === 'running') {
+            apply();
+            return;
+          }
+          ctx.resume().then(apply, apply);
+        }
+
+        function handlePttGranted(data) {
+          if (!data) return;
+          ptt.holderId = data.holderId || null;
+          ptt.holderName = data.holderName || '';
+          ptt.maxHoldMs = Number(data.maxHoldMs) || ptt.maxHoldMs;
+
+          if (data.holderId === selfId) {
+            if (!ptt.wantTalking) {
+              // 申请还没回来用户就松手了：立刻把话筒还回去
+              socket.emit('ptt:release');
+              updatePttUi();
+              return;
+            }
+            if (!ptt.granted) void startSpeaking();
+            return;
+          }
+
+          // 别人拿到了话筒：本地清理可能的残留状态，并准备播放
+          ptt.wantTalking = false;
+          ptt.granted = false;
+          stopPttCapture();
+          releaseMicStream();
+          preparePttPlayback();
+          updatePttUi();
+          printLog(`${pttLabelOf(ptt.holderId)} 开始讲话`);
+        }
+
+        function handlePttReleased(data) {
+          const selfWasHolder = Boolean(data && data.holderId === selfId);
+          ptt.holderId = null;
+          ptt.holderName = '';
+          ptt.wantTalking = false;
+          ptt.granted = false;
+          stopPttCapture();
+          releaseMicStream();
+          // 已排进 Web Audio 时间轴的语音会自然播完，避免最后几个字被切掉
+          updatePttUi();
+
+          if (data && data.reason === 'timeout') {
+            const seconds = Math.round(ptt.maxHoldMs / 1000);
+            printLog(`单次对讲已达 ${seconds} 秒上限，话筒自动释放。`, 'error');
+            showAlert(`单次对讲最长 ${seconds} 秒，已自动结束。`, '⏱️', 4000);
+          } else if (data && data.reason === 'limit') {
+            printLog('语音发送频率过高，话筒已被收回。', 'error');
+            showAlert('语音数据异常，话筒已被收回。', '⚠️', 4000);
+          } else if (data && data.reason === 'left') {
+            printLog(
+              `${data.holderName || '对方'} 已离开房间，话筒已释放。`,
+            );
+          } else if (selfWasHolder) {
+            printLog('已结束讲话');
+          } else if (data && data.holderName) {
+            printLog(`${data.holderName} 已结束讲话`);
+          }
+        }
+
+        function applyPttState(data) {
+          if (!data) return;
+          ptt.holderId = data.holderId || null;
+          ptt.holderName = data.holderName || '';
+          ptt.maxHoldMs = Number(data.maxHoldMs) || ptt.maxHoldMs;
+          if (!ptt.granted && ptt.holderId && ptt.holderId !== selfId) {
+            ptt.wantTalking = false;
+          }
+          updatePttUi();
+          if (ptt.holderId && ptt.holderId !== selfId) {
+            preparePttPlayback();
+            printLog(`${pttLabelOf(ptt.holderId)} 正在讲话`);
+          }
+        }
+
+        function syncPttMembers(members) {
+          ptt.members = Array.isArray(members) ? members.slice() : [];
+          updatePttUi();
+        }
+
+        /** 提前了解麦克风权限：已授权时按住即说，不再触发系统弹窗 */
+        function refreshMicPermission() {
+          try {
+            if (!navigator.permissions || !navigator.permissions.query) return;
+            navigator.permissions
+              .query({ name: 'microphone' })
+              .then((status) => {
+                if (status && status.state) {
+                  ptt.micState = status.state;
+                  updatePttUi();
+                }
+              })
+              .catch(() => {});
+          } catch {
+            /* Safari 等浏览器不支持按名称查询权限，忽略 */
+          }
+        }
+
+        /** 断线 / 退出房间时彻底停掉本地麦克风与语音播放 */
+        function resetPtt() {
+          ptt.holderId = null;
+          ptt.holderName = '';
+          ptt.wantTalking = false;
+          ptt.granted = false;
+          stopPttCapture();
+          releaseMicStream();
+          resetPttPlayback();
+          updatePttUi();
+        }
+
+        // 按住说话：pointer 事件同时覆盖鼠标与触屏，松手 / 移出 / 失焦都算结束
+        pttBtn.addEventListener('pointerdown', (event) => {
+          if (event.button != null && event.button !== 0) return;
+          event.preventDefault();
+          if (pttBtn.setPointerCapture && event.pointerId != null) {
+            try {
+              pttBtn.setPointerCapture(event.pointerId);
+            } catch {
+              /* 某些浏览器不支持，忽略 */
+            }
+          }
+          requestTalk();
+        });
+        ['pointerup', 'pointercancel', 'lostpointercapture'].forEach((name) => {
+          pttBtn.addEventListener(name, () => {
+            if (ptt.wantTalking || ptt.granted) stopTalking();
+          });
+        });
+        window.addEventListener('blur', () => {
+          if (ptt.wantTalking || ptt.granted) stopTalking();
+        });
+        document.addEventListener('visibilitychange', () => {
+          if (document.hidden && (ptt.wantTalking || ptt.granted)) {
+            stopTalking();
+          }
+        });
+
+        // 键盘空格键也能对讲（输入框、按钮内不抢占）
+        document.addEventListener('keydown', (event) => {
+          if (event.code !== 'Space' || event.repeat) return;
+          if (!joined || appView.classList.contains('hidden')) return;
+          const target = event.target;
+          const tag = target && target.tagName;
+          if (
+            tag === 'INPUT' ||
+            tag === 'TEXTAREA' ||
+            tag === 'SELECT' ||
+            tag === 'BUTTON' ||
+            tag === 'A' ||
+            (target && target.isContentEditable)
+          ) {
+            return;
+          }
+          event.preventDefault();
+          requestTalk();
+        });
+        document.addEventListener('keyup', (event) => {
+          if (event.code !== 'Space') return;
+          if (ptt.wantTalking || ptt.granted) stopTalking();
+        });
+
+        pttAudioUnlockBtn.onclick = () => {
+          void resumePttPlayback();
+        };
+
+        updatePttUi();
 
         /* ------------------------------ Tab 切换 ------------------------------ */
         document.querySelectorAll('.tab-btn').forEach((btn) => {
@@ -2487,6 +3305,7 @@
           setConnectionState(false);
           printLog('与服务器的连接已断开，正在自动重连…', 'error');
           cancelAllDialogs();
+          resetPtt();
           pendingSends.clear();
           taskLabels.clear();
           sendStates.forEach((state) => {
@@ -2560,8 +3379,46 @@
           joinCodeInput.value = retryCode || '';
         });
 
-        socket.on('server:ready', () => {
-          /* 预留：服务端能力探测 */
+        socket.on('server:ready', (data) => {
+          if (!data) return;
+          const maxHold = Number(data.pttMaxHoldMs);
+          if (Number.isFinite(maxHold) && maxHold > 0) ptt.maxHoldMs = maxHold;
+        });
+
+        /* ------------------------------ 对讲事件 ------------------------------ */
+
+        socket.on('ptt:state', applyPttState);
+        socket.on('ptt:granted', handlePttGranted);
+        socket.on('ptt:released', handlePttReleased);
+        socket.on('ptt:audio', (data) => {
+          void handlePttAudio(data);
+        });
+
+        socket.on('ptt:busy', (data) => {
+          ptt.wantTalking = false;
+          if (!ptt.granted) releaseMicStream();
+          if (data && data.holderId) {
+            ptt.holderId = data.holderId;
+            ptt.holderName = data.holderName || '';
+          }
+          updatePttUi();
+          showAlert(
+            `${(data && data.holderName) || '对方'} 正在讲话，请稍后再试。`,
+            '🎙️',
+            3000,
+          );
+        });
+
+        socket.on('ptt:error', (data) => {
+          ptt.wantTalking = false;
+          if (ptt.granted) stopTalking();
+          else {
+            releaseMicStream();
+            updatePttUi();
+          }
+          const message = (data && data.message) || '对讲操作失败。';
+          printLog(message, 'error');
+          showAlert(message, '🎙️', 4000);
         });
 
         /* ------------------------------ 创建 / 加入房间 ------------------------------ */
@@ -3748,6 +4605,7 @@
           renderNotifyStatus();
           updateInstallButtons();
           refreshSendButtons();
+          refreshMicPermission();
 
           // 清理超过 24 小时未继续的接收临时文件
           void pruneReceiveStorage();

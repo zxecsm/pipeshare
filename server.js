@@ -87,6 +87,19 @@ const HOST = process.env.HOST || '0.0.0.0';
 const TRUST_PROXY =
   process.env.TRUST_PROXY === '1' || process.env.TRUST_PROXY === 'true';
 
+/**
+ * 对讲语音直接走现有 WebSocket 通道：
+ * 说话端把麦克风采样压成 16kHz / 16bit 单声道 PCM，每 80ms 打一个包发给服务端，
+ * 服务端只做房间内转发，听众用 Web Audio 按顺序播放。
+ * 这样不需要 STUN / TURN，跨网络也能用，代价是语音带宽由服务器中转。
+ */
+const PTT_SAMPLE_RATE = 16000;
+const PTT_FRAME_MS = 80;
+// 单个语音分片上限：留出 2 倍余量（80ms @16kHz/16bit 约 2.5KB）
+const MAX_PTT_CHUNK = 8 * 1024;
+// 单个说话人每秒最多发送的语音字节数，防止拿话筒刷数据
+const PTT_BYTES_PER_SECOND = 96 * 1024; // 约 3 倍正常码率（32KB/s）
+
 const ROOM_CODE_LENGTH = 6;
 // 去除容易混淆的 I / L / O / 0 / 1，方便口头传达和手输
 const ROOM_CODE_ALPHABET = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
@@ -100,6 +113,7 @@ const MAX_NAME_LENGTH = 24;
 const MAX_FILE_NAME_LENGTH = 255;
 const MAX_ACTIVE_TASKS = 12; // 单设备同时进行中的传输任务上限
 const MAX_BATCH_FILES = 8; // 一次最多批量发送的文件数
+const MAX_PTT_HOLD = 60 * 1000; // 单次对讲最长 60 秒，到时自动交还话筒
 
 // 文件传输改为 WebSocket 分片：单帧 512KB，发送端最多同时保留 16 帧未确认数据。
 // 8MB 的在途窗口既能跑满带宽，又能把服务端/接收端的内存占用压在一个固定上限内。
@@ -288,6 +302,8 @@ function joinRoom(socket, room, nickname) {
     maxMembers: MAX_ROOM_MEMBERS,
     inviteTtlMs: INVITE_TTL,
   });
+  // 迟到者也能立刻知道当前是谁拿着话筒
+  socket.emit('ptt:state', pttSnapshot(room));
   emitRoomUpdate(room);
   return me;
 }
@@ -302,11 +318,62 @@ function leaveRoom(socket) {
   const room = rooms.get(code);
   if (!room) return;
 
+  // 说话人离开时立刻交还话筒，避免房间里一直显示「有人正在讲话」
+  if (room.ptt && room.ptt.holderId === socket.id) {
+    releasePtt(room, 'left');
+  }
+
   room.members.delete(socket.id);
   if (room.members.size === 0) {
     room.emptySince = Date.now();
   }
   emitRoomUpdate(room);
+}
+
+/* -------------------------------------------------------------------------- */
+/*                                 房间对讲 (PTT)                              */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * 对讲采用「同一时间只有一个话筒」的半双工模型：
+ * 任意设备申请成功后，其余设备只收听；说话人松开按钮 / 断线 / 超时后话筒释放。
+ */
+function pttSnapshot(room) {
+  const ptt = room.ptt;
+  const base = {
+    holderId: null,
+    holderName: '',
+    maxHoldMs: MAX_PTT_HOLD,
+    sampleRate: PTT_SAMPLE_RATE,
+    frameMs: PTT_FRAME_MS,
+  };
+  if (!ptt || !ptt.holderId) return base;
+  return {
+    ...base,
+    holderId: ptt.holderId,
+    holderName: ptt.holderName,
+    since: ptt.since,
+    expiresAt: ptt.expiresAt,
+  };
+}
+
+function clearPttTimer(room) {
+  if (room.ptt && room.ptt.timer) {
+    clearTimeout(room.ptt.timer);
+    room.ptt.timer = null;
+  }
+}
+
+function releasePtt(room, reason = 'released') {
+  if (!room || !room.ptt || !room.ptt.holderId) return;
+  const { holderId, holderName } = room.ptt;
+  clearPttTimer(room);
+  room.ptt = null;
+  io.to(roomChannel(room.code)).emit('ptt:released', {
+    holderId,
+    holderName,
+    reason,
+  });
 }
 
 /* -------------------------------------------------------------------------- */
@@ -523,6 +590,9 @@ io.on('connection', (socket) => {
     socketId: socket.id,
     inviteTtlMs: INVITE_TTL,
     maxRoomMembers: MAX_ROOM_MEMBERS,
+    pttMaxHoldMs: MAX_PTT_HOLD,
+    pttSampleRate: PTT_SAMPLE_RATE,
+    pttFrameMs: PTT_FRAME_MS,
   });
 
   /* ------------------------------- 房间操作 ------------------------------- */
@@ -544,6 +614,7 @@ io.on('connection', (socket) => {
       const room = {
         code,
         members: new Map(),
+        ptt: null,
         createdAt: Date.now(),
         emptySince: null,
       };
@@ -597,6 +668,102 @@ io.on('connection', (socket) => {
     abortTasksForSocket(socket.id);
     leaveRoom(socket);
     socket.emit('room:left');
+  });
+
+  /* ------------------------------- 房间对讲 ------------------------------- */
+
+  /** 申请话筒：成功则广播 ptt:granted，失败则只有申请者收到 ptt:busy */
+  socket.on('ptt:request', () => {
+    try {
+      const room = getRoomOfSocket(socket.id);
+      if (!room) {
+        return socket.emit('ptt:error', {
+          message: '请先加入房间后再使用对讲。',
+        });
+      }
+      if (!allowRate(`ptt:${clientIp(socket)}`, 90)) {
+        return socket.emit('ptt:error', {
+          message: '操作过于频繁，请稍后再试。',
+        });
+      }
+
+      const current = room.ptt;
+      if (current && current.holderId && current.holderId !== socket.id) {
+        // 说话人已经掉线但房间状态还没清理：直接收回话筒
+        if (io.sockets.sockets.get(current.holderId)) {
+          const holder = room.members.get(current.holderId);
+          return socket.emit('ptt:busy', {
+            holderId: current.holderId,
+            holderName: holder ? holder.name : current.holderName,
+            expiresAt: current.expiresAt,
+          });
+        }
+        releasePtt(room, 'offline');
+      }
+
+      const me = room.members.get(socket.id);
+      if (!me) return;
+
+      clearPttTimer(room);
+      const now = Date.now();
+      room.ptt = {
+        holderId: socket.id,
+        holderName: me.name,
+        since: now,
+        expiresAt: now + MAX_PTT_HOLD,
+        timer: null,
+      };
+      // 兜底：客户端异常（例如页面被系统挂起）没能松开按钮时，服务端强制收麦
+      room.ptt.timer = setTimeout(() => {
+        if (room.ptt && room.ptt.holderId === socket.id) {
+          releasePtt(room, 'timeout');
+        }
+      }, MAX_PTT_HOLD);
+      if (typeof room.ptt.timer.unref === 'function') room.ptt.timer.unref();
+
+      io.to(roomChannel(room.code)).emit('ptt:granted', pttSnapshot(room));
+    } catch (err) {
+      console.error('[ptt:request]', err);
+      socket.emit('ptt:error', { message: '申请话筒失败，请重试。' });
+    }
+  });
+
+  socket.on('ptt:release', () => {
+    const room = getRoomOfSocket(socket.id);
+    if (!room || !room.ptt || room.ptt.holderId !== socket.id) return;
+    releasePtt(room, 'released');
+  });
+
+  /**
+   * 语音分片转发：只有当前话筒持有者可以发，服务端校验分片大小与发送速率，
+   * 再广播给房间里除自己以外的所有设备。语音不落盘、不缓存。
+   */
+  socket.on('ptt:audio', (data) => {
+    const room = getRoomOfSocket(socket.id);
+    if (!room || !room.ptt || room.ptt.holderId !== socket.id) return;
+
+    const seq = Number(data && data.seq);
+    const size = chunkByteLength(data && data.data);
+    if (!Number.isInteger(seq) || seq < 0) return;
+    if (size <= 0 || size > MAX_PTT_CHUNK || size % 2 !== 0) return;
+
+    // 每秒字节预算：超出说明客户端异常或有人刷数据，直接收回话筒
+    const now = Date.now();
+    if (!socket.pttWindow || now - socket.pttWindow.at >= 1000) {
+      socket.pttWindow = { at: now, bytes: 0 };
+    }
+    socket.pttWindow.bytes += size;
+    if (socket.pttWindow.bytes > PTT_BYTES_PER_SECOND) {
+      releasePtt(room, 'limit');
+      return;
+    }
+
+    socket.to(roomChannel(room.code)).emit('ptt:audio', {
+      holderId: socket.id,
+      seq,
+      sampleRate: PTT_SAMPLE_RATE,
+      data: data.data,
+    });
   });
 
   /* ------------------------------- 文本快传 ------------------------------- */
