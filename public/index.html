@@ -1249,7 +1249,15 @@
           type="text"
           maxlength="24"
           placeholder="留空则自动生成"
-          autocomplete="nickname"
+          autocomplete="off"
+          autocorrect="off"
+          autocapitalize="off"
+          spellcheck="false"
+          data-form-type="other"
+          data-lpignore="true"
+          data-1p-ignore="true"
+          data-bwignore="true"
+          data-protonpass-ignore="true"
         />
 
         <div class="gate-grid">
@@ -1273,8 +1281,14 @@
               maxlength="12"
               placeholder="输入 4-12 位房号，例如 MYROOM"
               autocapitalize="characters"
+              autocorrect="off"
               autocomplete="off"
               spellcheck="false"
+              data-form-type="other"
+              data-lpignore="true"
+              data-1p-ignore="true"
+              data-bwignore="true"
+              data-protonpass-ignore="true"
               class="hidden"
             />
             <button id="create-room-btn">＋ 创建私有房间</button>
@@ -1292,8 +1306,14 @@
               maxlength="12"
               placeholder="例如 AB3D7K"
               autocapitalize="characters"
+              autocorrect="off"
               autocomplete="off"
               spellcheck="false"
+              data-form-type="other"
+              data-lpignore="true"
+              data-1p-ignore="true"
+              data-bwignore="true"
+              data-protonpass-ignore="true"
             />
             <button id="join-room-btn" class="btn-secondary">加入房间</button>
           </section>
@@ -1425,7 +1445,16 @@
           <label for="file-input"
             >2. 选择本地文件（可多选，单次最多 8 个）：</label
           >
-          <input type="file" id="file-input" multiple />
+          <input
+            type="file"
+            id="file-input"
+            multiple
+            data-form-type="other"
+            data-lpignore="true"
+            data-1p-ignore="true"
+            data-bwignore="true"
+            data-protonpass-ignore="true"
+          />
           <div id="selected-files" class="selected-files"></div>
           <div id="file-summary" class="file-summary hidden">
             <span id="file-summary-text">已选择 0 个文件</span>
@@ -1441,6 +1470,15 @@
           <textarea
             id="text-input"
             placeholder="在此输入需要发送的文本、代码或URL链接..."
+            autocomplete="off"
+            autocorrect="off"
+            autocapitalize="off"
+            spellcheck="false"
+            data-form-type="other"
+            data-lpignore="true"
+            data-1p-ignore="true"
+            data-bwignore="true"
+            data-protonpass-ignore="true"
           ></textarea>
           <button id="send-text-btn">🚀 发送普通文本</button>
           <button
