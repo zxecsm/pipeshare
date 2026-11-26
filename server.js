@@ -569,7 +569,7 @@ app.get('/api/qr', async (req, res) => {
       margin: 1,
       width: 280,
       errorCorrectionLevel: 'M',
-      color: { dark: '#0f172a', light: '#ffffff' },
+      color: { dark: '#083344', light: '#ffffff' },
     });
     res
       .type('image/svg+xml')
@@ -601,16 +601,41 @@ io.on('connection', (socket) => {
     try {
       if (!allowRate(`create:${clientIp(socket)}`, 20)) {
         return socket.emit('room:error', {
+          action: 'create',
           message: '创建房间过于频繁，请稍后再试。',
         });
       }
       if (rooms.size >= MAX_ROOMS) {
         return socket.emit('room:error', {
+          action: 'create',
           message: '服务器房间数量已达上限，请稍后再试。',
         });
       }
       const { nickname } = data || {};
-      const code = generateRoomCode();
+
+      // 支持自定义房号：留空则由服务端生成随机房号。
+      // 自定义房号同样会被统一成大写字母 + 数字，方便口头传达和手输。
+      const requestedCode = normalizeRoomCode(data && data.roomCode);
+      let code;
+      if (requestedCode) {
+        if (requestedCode.length < 4) {
+          return socket.emit('room:error', {
+            action: 'create',
+            message: '自定义房号至少需要 4 位字母或数字。',
+          });
+        }
+        if (rooms.has(requestedCode)) {
+          return socket.emit('room:error', {
+            action: 'create',
+            code: requestedCode,
+            message: `房号 ${requestedCode} 已被占用，请换一个。`,
+          });
+        }
+        code = requestedCode;
+      } else {
+        code = generateRoomCode();
+      }
+
       const room = {
         code,
         members: new Map(),
@@ -623,7 +648,10 @@ io.on('connection', (socket) => {
       console.log(`[room] ${socket.id} 创建房间 ${code}`);
     } catch (err) {
       console.error('[room:create]', err);
-      socket.emit('room:error', { message: '创建房间失败，请重试。' });
+      socket.emit('room:error', {
+        action: 'create',
+        message: '创建房间失败，请重试。',
+      });
     }
   });
 
@@ -631,18 +659,23 @@ io.on('connection', (socket) => {
     try {
       if (!allowRate(`join:${clientIp(socket)}`, 60)) {
         return socket.emit('room:error', {
+          action: 'join',
           message: '尝试加入房间过于频繁，请稍后再试。',
         });
       }
       const { roomCode, nickname } = data || {};
       const code = normalizeRoomCode(roomCode);
       if (!code) {
-        return socket.emit('room:error', { message: '请输入有效的房间码。' });
+        return socket.emit('room:error', {
+          action: 'join',
+          message: '请输入有效的房间码。',
+        });
       }
 
       const room = rooms.get(code);
       if (!room) {
         return socket.emit('room:error', {
+          action: 'join',
           code,
           message: '房间不存在或已过期，请确认房间码后重试。',
         });
@@ -650,6 +683,7 @@ io.on('connection', (socket) => {
 
       if (!room.members.has(socket.id) && room.members.size >= MAX_ROOM_MEMBERS) {
         return socket.emit('room:error', {
+          action: 'join',
           code,
           message: `房间人数已满（最多 ${MAX_ROOM_MEMBERS} 台设备）。`,
         });
@@ -659,7 +693,10 @@ io.on('connection', (socket) => {
       console.log(`[room] ${socket.id} 加入房间 ${code}`);
     } catch (err) {
       console.error('[room:join]', err);
-      socket.emit('room:error', { message: '加入房间失败，请重试。' });
+      socket.emit('room:error', {
+        action: 'join',
+        message: '加入房间失败，请重试。',
+      });
     }
   });
 

@@ -355,7 +355,7 @@ async function main() {
     const swBody = swRes.body.toString('utf8');
     assert.match(swBody, /CACHE_NAME/);
     assert.match(swBody, /notificationclick/);
-    assert.match(swBody, /pipeshare-shell-v6/);
+    assert.match(swBody, /pipeshare-shell-v7/);
     assert.match(swRes.headers['cache-control'] || '', /no-cache/);
 
     const iconRes = await httpGet(`${BASE}/icons/icon-512.png`);
@@ -409,12 +409,26 @@ async function main() {
     assert.strictEqual(textPayload.content, 'hello alice');
     assert.strictEqual(textPayload.senderName, 'Bob');
 
-    // 不同房间隔离：Carol 自己建房后不能给 Alice 发消息
+    // 不同房间隔离：Carol 用自定义房号建房后不能给 Alice 发消息
     const carolRoom = await new Promise((resolve) => {
-      carol.emit('room:create', { nickname: 'Carol' });
+      carol.emit('room:create', { nickname: 'Carol', roomCode: 'myroom' });
       carol.once('room:joined', resolve);
     });
+    assert.strictEqual(carolRoom.code, 'MYROOM', '自定义房号应统一成大写');
     assert.notStrictEqual(carolRoom.code, room.code);
+
+    // 自定义房号冲突与长度校验
+    const duplicateCodeError = once(carol, 'room:error');
+    carol.emit('room:create', { nickname: 'Carol2', roomCode: 'MYROOM' });
+    const duplicateCodeErr = await duplicateCodeError;
+    assert.match(duplicateCodeErr.message, /已被占用/);
+    assert.strictEqual(duplicateCodeErr.action, 'create');
+
+    const shortCodeError = once(carol, 'room:error');
+    carol.emit('room:create', { nickname: 'Carol3', roomCode: 'abc' });
+    const shortCodeErr = await shortCodeError;
+    assert.match(shortCodeErr.message, /至少需要 4 位/);
+    assert.strictEqual(shortCodeErr.action, 'create');
 
     const isolationError = once(carol, 'transfer-error');
     carol.emit('text-share', { targetId: alice.id, content: 'should fail' });

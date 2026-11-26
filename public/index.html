@@ -10,8 +10,8 @@
       name="description"
       content="基于 WebSocket 分片传输的零无感快传工具，私有房间隔离，不占服务器磁盘，文件、文本秒级跨端互传"
     />
-    <meta name="theme-color" content="#0070f3" media="(prefers-color-scheme: light)" />
-    <meta name="theme-color" content="#0f172a" media="(prefers-color-scheme: dark)" />
+    <meta name="theme-color" content="#0891b2" media="(prefers-color-scheme: light)" />
+    <meta name="theme-color" content="#061a20" media="(prefers-color-scheme: dark)" />
     <meta name="application-name" content="PipeShare" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="mobile-web-app-capable" content="yes" />
@@ -23,42 +23,64 @@
     <link rel="apple-touch-icon" href="icons/apple-touch-icon.png" />
     <style>
       :root {
-        --bg-main: #f4f6f9;
+        /* 主色调：青 → 蓝 → 绿，青色为首 */
+        --bg-main: #f0fbfa;
         --bg-card: #ffffff;
-        --text-main: #2c3e50;
-        --text-muted: #7f8c8d;
-        --border-color: #e2e8f0;
-        --primary-color: #0070f3;
-        --primary-hover: #0051cb;
-        --danger-color: #e74c3c;
-        --tag-bg: #e1f5fe;
-        --tag-color: #0288d1;
-        --log-bg: #1e1e1e;
-        --log-text: #39ff14;
-        --shadow: 0 10px 30px rgba(0, 0, 0, 0.05);
-        --modal-overlay: rgba(0, 0, 0, 0.4);
-        --scrollbar-thumb: rgba(127, 140, 141, 0.35);
-        --scrollbar-thumb-hover: rgba(127, 140, 141, 0.55);
+        --text-main: #12343b;
+        --text-muted: #5b7c85;
+        --border-color: #d5eceb;
+        --primary-color: #0891b2;
+        --primary-bg: #0891b2;
+        --primary-bg-hover: #0e7490;
+        --primary-bright: #06b6d4;
+        --primary-soft: rgba(8, 145, 178, 0.09);
+        --primary-soft-strong: rgba(8, 145, 178, 0.16);
+        --secondary-color: #2563eb;
+        --success-color: #10b981;
+        --success-soft: rgba(16, 185, 129, 0.12);
+        --danger-color: #ef4444;
+        --tag-bg: #cffafe;
+        --tag-color: #0e7490;
+        --log-bg: #07222a;
+        --log-text: #34d399;
+        --shadow: 0 10px 30px rgba(8, 145, 178, 0.08);
+        --modal-overlay: rgba(6, 26, 32, 0.48);
+        --scrollbar-thumb: rgba(91, 124, 133, 0.35);
+        --scrollbar-thumb-hover: rgba(91, 124, 133, 0.55);
+        --bg-glow-cyan: rgba(6, 182, 212, 0.14);
+        --bg-glow-blue: rgba(37, 99, 235, 0.08);
+        --bg-glow-green: rgba(16, 185, 129, 0.08);
       }
 
       @media (prefers-color-scheme: dark) {
         :root {
-          --bg-main: #0f172a;
-          --bg-card: #1e293b;
-          --text-main: #f8fafc;
-          --text-muted: #94a3b8;
-          --border-color: #334155;
-          --primary-color: #3b82f6;
-          --primary-hover: #2563eb;
+          --bg-main: #061a20;
+          --bg-card: #0c2a33;
+          --text-main: #ecfeff;
+          --text-muted: #8fb6bf;
+          --border-color: #1c4653;
+          /* 深色模式下按钮用深青保证白字可读，亮青留给文字和装饰 */
+          --primary-color: #22d3ee;
+          --primary-bg: #0e7490;
+          --primary-bg-hover: #155e75;
+          --primary-bright: #67e8f9;
+          --primary-soft: rgba(34, 211, 238, 0.12);
+          --primary-soft-strong: rgba(34, 211, 238, 0.2);
+          --secondary-color: #60a5fa;
+          --success-color: #34d399;
+          --success-soft: rgba(52, 211, 153, 0.16);
           --danger-color: #f87171;
-          --tag-bg: #1e3a8a;
-          --tag-color: #93c5fd;
-          --log-bg: #020617;
-          --log-text: #10b981;
-          --shadow: 0 10px 30px rgba(0, 0, 0, 0.3);
+          --tag-bg: #164e63;
+          --tag-color: #67e8f9;
+          --log-bg: #021417;
+          --log-text: #34d399;
+          --shadow: 0 10px 30px rgba(0, 0, 0, 0.35);
           --modal-overlay: rgba(0, 0, 0, 0.6);
-          --scrollbar-thumb: rgba(148, 163, 184, 0.35);
-          --scrollbar-thumb-hover: rgba(148, 163, 184, 0.55);
+          --scrollbar-thumb: rgba(143, 182, 191, 0.32);
+          --scrollbar-thumb-hover: rgba(143, 182, 191, 0.5);
+          --bg-glow-cyan: rgba(34, 211, 238, 0.1);
+          --bg-glow-blue: rgba(96, 165, 250, 0.08);
+          --bg-glow-green: rgba(52, 211, 153, 0.08);
         }
       }
 
@@ -77,6 +99,12 @@
       body {
         font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
         background-color: var(--bg-main);
+        /* 青、蓝、绿三色柔光，青色占主导 */
+        background-image:
+          radial-gradient(circle at 12% 0%, var(--bg-glow-cyan), transparent 42%),
+          radial-gradient(circle at 88% 6%, var(--bg-glow-blue), transparent 40%),
+          radial-gradient(circle at 50% 100%, var(--bg-glow-green), transparent 46%);
+        background-attachment: fixed;
         color: var(--text-main);
         margin: 0;
         padding: 16px;
@@ -170,7 +198,7 @@
       }
 
       input[type='file']::file-selector-button {
-        background: var(--primary-color);
+        background: var(--primary-bg);
         color: white;
         border: none;
         padding: 6px 12px;
@@ -180,7 +208,7 @@
       }
 
       button {
-        background-color: var(--primary-color);
+        background-color: var(--primary-bg);
         color: white;
         font-weight: 600;
         border: none;
@@ -189,7 +217,7 @@
         cursor: pointer;
       }
       button:hover:not(:disabled) {
-        background-color: var(--primary-hover);
+        background-color: var(--primary-bg-hover);
         transform: translateY(-1px);
       }
       button:active:not(:disabled) {
@@ -203,6 +231,88 @@
       /* --- 登录 / 建房页 --- */
       .gate {
         padding: 28px 24px;
+      }
+      .gate-grid {
+        display: grid;
+        grid-template-columns: 1fr;
+        gap: 16px;
+        margin-top: 4px;
+      }
+      .gate-panel {
+        display: flex;
+        flex-direction: column;
+        padding: 16px;
+        border: 1px solid var(--border-color);
+        border-radius: 14px;
+        background: var(--bg-main);
+      }
+      .gate-panel h4 {
+        margin: 0 0 12px;
+        font-size: 0.95rem;
+      }
+      .gate-panel label {
+        margin-top: 0;
+      }
+      .gate-panel input[type='text'] {
+        background: var(--bg-card);
+        margin-bottom: 14px;
+      }
+      /* 让两个面板的底部按钮对齐 */
+      .gate-panel > button {
+        margin-top: auto;
+      }
+      .seg {
+        display: flex;
+        gap: 6px;
+        padding: 4px;
+        margin-bottom: 14px;
+        border: 1px solid var(--border-color);
+        border-radius: 12px;
+        background: var(--bg-card);
+      }
+      .seg-btn {
+        flex: 1;
+        margin: 0;
+        padding: 9px 8px;
+        border-radius: 8px;
+        background: transparent;
+        color: var(--text-muted);
+        font-size: 0.82rem;
+        font-weight: 600;
+      }
+      .seg-btn:hover:not(:disabled) {
+        background: var(--primary-soft);
+        color: var(--text-main);
+        transform: none;
+      }
+      .seg-btn.active,
+      .seg-btn.active:hover:not(:disabled) {
+        background: var(--primary-bg);
+        color: #fff;
+      }
+      .panel-hint {
+        margin: 10px 0 0;
+        min-height: 2.2em;
+        font-size: 0.74rem;
+        line-height: 1.5;
+        color: var(--text-muted);
+      }
+      /* 电脑端把创建 / 加入并排显示，不再挤成一条窄列 */
+      @media (min-width: 760px) {
+        #gate-view {
+          max-width: 920px;
+        }
+        .gate {
+          padding: 32px;
+        }
+        .gate-grid {
+          grid-template-columns: 1fr 1fr;
+        }
+      }
+      @media (min-width: 960px) {
+        #app-view {
+          max-width: 760px;
+        }
       }
       .brand {
         display: flex;
@@ -220,6 +330,17 @@
         margin: 0;
         font-size: 1.45rem;
         letter-spacing: 0.5px;
+        /* 青 → 蓝 → 绿，青色在起点 */
+        background-image: linear-gradient(
+          110deg,
+          var(--primary-bright) 0%,
+          var(--secondary-color) 58%,
+          var(--success-color) 100%
+        );
+        -webkit-background-clip: text;
+        background-clip: text;
+        color: transparent;
+        -webkit-text-fill-color: transparent;
       }
       .brand p {
         margin: 4px 0 0;
@@ -298,7 +419,7 @@
       }
       .brand .repo-link:hover {
         border-color: var(--primary-color);
-        background: rgba(0, 112, 243, 0.08);
+        background: var(--primary-soft);
       }
 
       /* --- 房间信息卡片 --- */
@@ -327,7 +448,15 @@
         font-size: clamp(1.15rem, 5.5vw, 1.5rem);
         font-weight: 700;
         letter-spacing: 0.18em;
-        color: var(--primary-color);
+        background-image: linear-gradient(
+          110deg,
+          var(--primary-bright) 0%,
+          var(--secondary-color) 100%
+        );
+        -webkit-background-clip: text;
+        background-clip: text;
+        color: transparent;
+        -webkit-text-fill-color: transparent;
         overflow-wrap: anywhere;
       }
       .conn-chip {
@@ -345,7 +474,7 @@
         width: 7px;
         height: 7px;
         border-radius: 50%;
-        background: #2ecc71;
+        background: var(--success-color);
       }
       .conn-chip.offline .dot {
         background: var(--danger-color);
@@ -358,7 +487,7 @@
         align-items: center;
         gap: 4px;
         font-size: 0.72rem;
-        color: #0284c7;
+        color: var(--secondary-color);
         background: var(--tag-bg);
         border-radius: 30px;
         padding: 4px 10px;
@@ -386,8 +515,8 @@
         user-select: none;
       }
       .notify-chip.on {
-        color: #0f9d58;
-        background: rgba(46, 204, 113, 0.12);
+        color: var(--success-color);
+        background: var(--success-soft);
       }
       .notify-chip.off {
         color: var(--text-muted);
@@ -419,7 +548,7 @@
         border: 1px solid var(--primary-color);
       }
       .btn-secondary:hover:not(:disabled) {
-        background-color: rgba(0, 112, 243, 0.08);
+        background-color: var(--primary-soft);
         color: var(--primary-color);
       }
       .btn-ghost {
@@ -455,7 +584,7 @@
       }
       /* 覆盖全局 button:hover 的蓝底，否则灰字压在深蓝上几乎看不清 */
       .tab-btn:hover:not(:disabled) {
-        background-color: rgba(0, 112, 243, 0.1);
+        background-color: var(--primary-soft-strong);
         color: var(--text-main);
         transform: none;
       }
@@ -494,6 +623,19 @@
         display: flex;
         flex-direction: column;
         gap: 8px;
+        /* 设备多时限制高度并滚动，避免把下面的对讲、传输区顶出屏幕 */
+        max-height: 280px;
+        overflow-y: auto;
+        overscroll-behavior: contain;
+        padding-right: 4px;
+      }
+      /* 电脑端空间充足时，设备列表按多列排布 */
+      @media (min-width: 640px) {
+        .device-list {
+          display: grid;
+          grid-template-columns: repeat(auto-fill, minmax(210px, 1fr));
+          align-content: start;
+        }
       }
       .device-item {
         display: flex;
@@ -579,7 +721,12 @@
         width: 0;
         height: 100%;
         border-radius: inherit;
-        background: var(--primary-color);
+        background: linear-gradient(
+          90deg,
+          var(--primary-bright) 0%,
+          var(--secondary-color) 58%,
+          var(--success-color) 100%
+        );
         transition: width 0.08s linear;
       }
       .ptt-live {
@@ -603,6 +750,33 @@
         margin: 0;
         padding: 6px 10px;
       }
+      .ptt-head-actions {
+        display: inline-flex;
+        align-items: center;
+        justify-content: flex-end;
+        gap: 8px;
+        flex-wrap: wrap;
+      }
+      .ptt-fx-btn {
+        width: auto;
+        margin: 0;
+        padding: 4px 10px;
+        border: none;
+        border-radius: 30px;
+        background: var(--bg-main);
+        color: var(--text-muted);
+        font-size: 0.72rem;
+        font-weight: 600;
+        line-height: 1.3;
+      }
+      .ptt-fx-btn.on {
+        color: var(--success-color);
+        background: var(--success-soft);
+      }
+      .ptt-fx-btn:hover:not(:disabled) {
+        transform: none;
+        background: var(--success-soft);
+      }
       .ptt-wave {
         display: inline-flex;
         align-items: center;
@@ -619,12 +793,15 @@
         animation: ptt-wave 1s ease-in-out infinite;
       }
       .ptt-wave i:nth-child(1) {
+        background: var(--primary-bright);
         animation-delay: 0s;
       }
       .ptt-wave i:nth-child(2) {
+        background: var(--secondary-color);
         animation-delay: 0.18s;
       }
       .ptt-wave i:nth-child(3) {
+        background: var(--success-color);
         animation-delay: 0.36s;
       }
       @keyframes ptt-wave {
@@ -770,11 +947,15 @@
         width: 0;
         height: 100%;
         border-radius: 99px;
-        background: var(--primary-color);
+        background: linear-gradient(
+          90deg,
+          var(--primary-bright) 0%,
+          var(--secondary-color) 100%
+        );
         transition: width 0.2s ease;
       }
       .progress-fill.done {
-        background: #2ecc71;
+        background: var(--success-color);
       }
       .progress-fill.error {
         background: var(--danger-color);
@@ -998,13 +1179,14 @@
         .modal-btn-cancel:hover {
           background-color: rgba(255, 255, 255, 0.05);
         }
-        .notify-chip.on {
-          color: #6ee7b7;
+        .notify-chip.on,
+        .ptt-fx-btn.on {
+          color: var(--success-color);
         }
-        /* 深色卡片上用更浅的蓝，保证选中态文字对比度 */
+        /* 深色卡片上用亮青，保证选中态文字对比度 */
         .tab-btn.active,
         .tab-btn.active:hover:not(:disabled) {
-          color: #93c5fd;
+          color: var(--primary-color);
         }
       }
 
@@ -1070,21 +1252,52 @@
           autocomplete="nickname"
         />
 
-        <button id="create-room-btn">＋ 创建私有房间</button>
+        <div class="gate-grid">
+          <section class="gate-panel">
+            <h4>创建新房间</h4>
+            <div class="seg" role="group" aria-label="房号生成方式">
+              <button
+                type="button"
+                class="seg-btn active"
+                data-create-mode="random"
+              >
+                随机房号
+              </button>
+              <button type="button" class="seg-btn" data-create-mode="custom">
+                自定义房号
+              </button>
+            </div>
+            <input
+              id="create-code-input"
+              type="text"
+              maxlength="12"
+              placeholder="输入 4-12 位房号，例如 MYROOM"
+              autocapitalize="characters"
+              autocomplete="off"
+              spellcheck="false"
+              class="hidden"
+            />
+            <button id="create-room-btn">＋ 创建私有房间</button>
+            <p class="panel-hint" id="create-mode-hint">
+              系统会自动生成 6 位随机房号，创建后即可分享邀请。
+            </p>
+          </section>
 
-        <div class="divider"><span>或加入已有房间</span></div>
-
-        <label for="join-code-input">房间码</label>
-        <input
-          id="join-code-input"
-          type="text"
-          maxlength="12"
-          placeholder="例如 AB3D7K"
-          autocapitalize="characters"
-          autocomplete="off"
-          spellcheck="false"
-        />
-        <button id="join-room-btn" class="btn-secondary">加入房间</button>
+          <section class="gate-panel">
+            <h4>加入已有房间</h4>
+            <label for="join-code-input">房间码</label>
+            <input
+              id="join-code-input"
+              type="text"
+              maxlength="12"
+              placeholder="例如 AB3D7K"
+              autocapitalize="characters"
+              autocomplete="off"
+              spellcheck="false"
+            />
+            <button id="join-room-btn" class="btn-secondary">加入房间</button>
+          </section>
+        </div>
 
         <p class="hint">
           🔒 只有同一房间内的设备才能互相发现和传输文件，不同房间之间完全隔离。
@@ -1155,7 +1368,17 @@
       <div class="box" id="ptt-box">
         <h3>
           <span>🎙️ 房间对讲</span>
-          <span class="device-tag" id="ptt-status">空闲</span>
+          <span class="ptt-head-actions">
+            <button
+              id="ptt-fx-btn"
+              class="ptt-fx-btn on"
+              type="button"
+              title="切换对讲机底噪与结束提示音"
+            >
+              🔊 音效
+            </button>
+            <span class="device-tag" id="ptt-status">空闲</span>
+          </span>
         </h3>
 
         <button id="ptt-btn" class="ptt-btn" type="button" aria-label="按住说话">
@@ -1181,7 +1404,7 @@
 
         <p class="hint" id="ptt-hint">
           按住按钮说话，房间内所有设备都能实时听到，同一时间只有一人在讲；松开按钮结束。语音经现有
-          WebSocket 实时转发，无需额外配置。
+          WebSocket 实时转发，无需额外配置。内置对讲机底噪与结束时的“啾”提示音，可用右上角「音效」开关关闭。
         </p>
       </div>
 
@@ -1314,6 +1537,9 @@
         const joinCodeInput = $('join-code-input');
         const createRoomBtn = $('create-room-btn');
         const joinRoomBtn = $('join-room-btn');
+        const createCodeInput = $('create-code-input');
+        const createModeHint = $('create-mode-hint');
+        const segBtns = Array.from(document.querySelectorAll('.seg-btn'));
 
         const roomCodeEl = $('room-code');
         const connStatus = $('conn-status');
@@ -1335,6 +1561,7 @@
         const pttLive = $('ptt-live');
         const pttLiveText = $('ptt-live-text');
         const pttAudioUnlockBtn = $('ptt-audio-unlock');
+        const pttFxBtn = $('ptt-fx-btn');
 
         const logBox = $('log');
         const targetSelect = $('target-device');
@@ -1433,6 +1660,14 @@
           sources: new Set(),
         };
 
+        // 对讲机音效：底噪（嘶嘶声）与结束时的“啾”提示音，全部在本地合成
+        const pttFx = {
+          enabled: storageGet('pipeshare:pttFx') !== 'off',
+          noiseBuffer: null,
+          noiseSource: null,
+          noiseGain: null,
+        };
+
         const dialogQueue = [];
         let activeDialog = null;
 
@@ -1509,8 +1744,8 @@
           const emoji = type === 'success' ? '✅' : type === 'error' ? '❌' : '>';
           const line = document.createElement('div');
           line.textContent = `${emoji} [${timeStr()}] ${msg}`;
-          if (type === 'error') line.style.color = '#ff6b6b';
-          else if (type === 'success') line.style.color = '#4cd964';
+          if (type === 'error') line.style.color = '#f87171';
+          else if (type === 'success') line.style.color = '#34d399';
           logBox.appendChild(line);
           trimLog();
           logBox.scrollTop = logBox.scrollHeight;
@@ -2740,6 +2975,7 @@
           stopPttCapture();
           ptt.granted = false;
           releaseMicStream();
+          stopPttStatic();
           resetPttPlayback();
           if (notifyServer && wasGranted) socket.emit('ptt:release');
           updatePttUi();
@@ -2764,6 +3000,7 @@
             }
 
             startPttCapture(ptt.stream);
+            startPttStatic();
             printLog('麦克风已开启，房间内设备可实时收听。', 'success');
             updatePttUi();
           } catch (err) {
@@ -2988,6 +3225,9 @@
               if (running) {
                 ptt.audioBlocked = false;
                 pttPlayback.nextTime = 0;
+                if (ptt.holderId && ptt.holderId !== selfId) {
+                  startPttStatic();
+                }
               }
               updatePttUi();
               return running;
@@ -3007,6 +3247,161 @@
           pttPlayback.sources.clear();
           pttPlayback.nextTime = 0;
           ptt.audioBlocked = false;
+        }
+
+        /* ---------------------- 对讲机音效：底噪 + 结束提示音 ---------------------- */
+
+        /** 生成一段循环播放的“电台底噪”，带一点平滑滤波，避免听起来像纯白噪声 */
+        function getPttNoiseBuffer(ctx) {
+          if (pttFx.noiseBuffer && pttFx.noiseBuffer.sampleRate === ctx.sampleRate) {
+            return pttFx.noiseBuffer;
+          }
+          const length = Math.floor(ctx.sampleRate * 2);
+          const buffer = ctx.createBuffer(1, length, ctx.sampleRate);
+          const data = buffer.getChannelData(0);
+          let smoothed = 0;
+          for (let i = 0; i < length; i += 1) {
+            const white = Math.random() * 2 - 1;
+            smoothed = smoothed * 0.82 + white * 0.18;
+            data[i] = smoothed;
+          }
+          pttFx.noiseBuffer = buffer;
+          return buffer;
+        }
+
+        /** 讲话 / 收听期间持续播放的轻微电流底噪 */
+        function startPttStatic() {
+          if (!pttFx.enabled) return;
+          const ctx = ensurePttPlaybackContext();
+          if (!ctx || ctx.state !== 'running') return;
+          if (pttFx.noiseSource) return;
+
+          const source = ctx.createBufferSource();
+          source.buffer = getPttNoiseBuffer(ctx);
+          source.loop = true;
+
+          const highpass = ctx.createBiquadFilter();
+          highpass.type = 'highpass';
+          highpass.frequency.value = 900;
+
+          const lowpass = ctx.createBiquadFilter();
+          lowpass.type = 'lowpass';
+          lowpass.frequency.value = 5600;
+
+          const gain = ctx.createGain();
+          const now = ctx.currentTime;
+          // 按下瞬间先来一下“静噪开启”的爆音，再稳定在很轻的底噪
+          gain.gain.setValueAtTime(0.0001, now);
+          gain.gain.exponentialRampToValueAtTime(0.055, now + 0.02);
+          gain.gain.exponentialRampToValueAtTime(0.02, now + 0.18);
+
+          source
+            .connect(highpass)
+            .connect(lowpass)
+            .connect(gain)
+            .connect(ctx.destination);
+          source.start(now);
+          source.onended = () => {
+            try {
+              source.disconnect();
+            } catch {
+              /* ignore */
+            }
+          };
+
+          pttFx.noiseSource = source;
+          pttFx.noiseGain = gain;
+        }
+
+        function stopPttStatic() {
+          const source = pttFx.noiseSource;
+          const gain = pttFx.noiseGain;
+          pttFx.noiseSource = null;
+          pttFx.noiseGain = null;
+          if (!source) return;
+          try {
+            const ctx = source.context;
+            const now = ctx.currentTime;
+            gain.gain.cancelScheduledValues(now);
+            gain.gain.setValueAtTime(Math.max(0.0001, gain.gain.value), now);
+            gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.06);
+            source.stop(now + 0.08);
+          } catch {
+            /* 节点可能已经停止 */
+          }
+        }
+
+        /**
+         * 结束讲话的“啾”：一段从高到低的下滑音，外加一点电台尾噪。
+         * delayUntil 用于收听端：等已经排队的声音播完再响，保证它是最后一声。
+         */
+        function playPttRogerBeep(delayUntil = 0) {
+          if (!pttFx.enabled) return;
+          const ctx = ensurePttPlaybackContext();
+          if (!ctx || ctx.state !== 'running') return;
+
+          const now = Math.max(
+            ctx.currentTime + 0.02,
+            Number(delayUntil) || 0,
+          );
+          const master = ctx.createGain();
+          master.gain.setValueAtTime(0.0001, now);
+          master.gain.exponentialRampToValueAtTime(0.16, now + 0.015);
+          master.gain.exponentialRampToValueAtTime(0.0001, now + 0.26);
+          master.connect(ctx.destination);
+
+          const tone = ctx.createOscillator();
+          tone.type = 'sine';
+          tone.frequency.setValueAtTime(1900, now);
+          tone.frequency.exponentialRampToValueAtTime(620, now + 0.22);
+          tone.connect(master);
+          tone.start(now);
+          tone.stop(now + 0.27);
+
+          // 低八度三角波让提示音更接近小对讲机的塑料味
+          const sub = ctx.createOscillator();
+          sub.type = 'triangle';
+          sub.frequency.setValueAtTime(950, now);
+          sub.frequency.exponentialRampToValueAtTime(310, now + 0.22);
+          const subGain = ctx.createGain();
+          subGain.gain.value = 0.3;
+          sub.connect(subGain).connect(master);
+          sub.start(now);
+          sub.stop(now + 0.27);
+
+          const tail = ctx.createBufferSource();
+          tail.buffer = getPttNoiseBuffer(ctx);
+          const tailFilter = ctx.createBiquadFilter();
+          tailFilter.type = 'bandpass';
+          tailFilter.frequency.value = 2400;
+          tailFilter.Q.value = 0.7;
+          const tailGain = ctx.createGain();
+          tailGain.gain.setValueAtTime(0.07, now);
+          tailGain.gain.exponentialRampToValueAtTime(0.0001, now + 0.1);
+          tail.connect(tailFilter).connect(tailGain).connect(ctx.destination);
+          tail.start(now);
+          tail.stop(now + 0.12);
+        }
+
+        function renderPttFx() {
+          if (!pttFxBtn) return;
+          pttFxBtn.classList.toggle('on', pttFx.enabled);
+          pttFxBtn.textContent = pttFx.enabled ? '🔊 音效' : '🔇 静音';
+          pttFxBtn.title = pttFx.enabled
+            ? '点击关闭对讲机底噪与结束提示音'
+            : '点击开启对讲机底噪与结束提示音';
+        }
+
+        /** 由用户手势触发，尽量让音效上下文进入 running 状态 */
+        function unlockPttFx() {
+          const ctx = ensurePttPlaybackContext();
+          if (!ctx || ctx.state === 'running') return;
+          ctx.resume().then(
+            () => {
+              if (ptt.holderId && ptt.holderId !== selfId) startPttStatic();
+            },
+            () => {},
+          );
         }
 
         /** 按时间轴排队播放，留 120ms 抖动缓冲，网络抖动时不容易断续 */
@@ -3094,7 +3489,11 @@
           const ctx = ensurePttPlaybackContext();
           if (!ctx) return;
           const apply = () => {
-            ptt.audioBlocked = ctx.state !== 'running';
+            const running = ctx.state === 'running';
+            ptt.audioBlocked = !running;
+            if (running && ptt.holderId && ptt.holderId !== selfId) {
+              startPttStatic();
+            }
             updatePttUi();
           };
           if (ctx.state === 'running') {
@@ -3133,12 +3532,18 @@
 
         function handlePttReleased(data) {
           const selfWasHolder = Boolean(data && data.holderId === selfId);
+          // 只有正在讲话或正在收听时才播放结束提示音，避免旁听到别人的无关释放
+          const wasListening = Boolean(ptt.holderId && ptt.holderId !== selfId);
+          // 收听端可能还有一小段语音排在播放时间轴里，让“啾”接在它们后面
+          const beepAt = wasListening ? pttPlayback.nextTime : 0;
           ptt.holderId = null;
           ptt.holderName = '';
           ptt.wantTalking = false;
           ptt.granted = false;
           stopPttCapture();
           releaseMicStream();
+          stopPttStatic();
+          if (selfWasHolder || wasListening) playPttRogerBeep(beepAt);
           // 已排进 Web Audio 时间轴的语音会自然播完，避免最后几个字被切掉
           updatePttUi();
 
@@ -3206,6 +3611,7 @@
           ptt.granted = false;
           stopPttCapture();
           releaseMicStream();
+          stopPttStatic();
           resetPttPlayback();
           updatePttUi();
         }
@@ -3221,6 +3627,7 @@
               /* 某些浏览器不支持，忽略 */
             }
           }
+          unlockPttFx();
           requestTalk();
         });
         ['pointerup', 'pointercancel', 'lostpointercapture'].forEach((name) => {
@@ -3237,9 +3644,9 @@
           }
         });
 
-        // 键盘空格键也能对讲（输入框、按钮内不抢占）
+        // 键盘空格键也能对讲（输入框、其他按钮内不抢占）
         document.addEventListener('keydown', (event) => {
-          if (event.code !== 'Space' || event.repeat) return;
+          if (event.code !== 'Space') return;
           if (!joined || appView.classList.contains('hidden')) return;
           const target = event.target;
           const tag = target && target.tagName;
@@ -3247,23 +3654,43 @@
             tag === 'INPUT' ||
             tag === 'TEXTAREA' ||
             tag === 'SELECT' ||
-            tag === 'BUTTON' ||
             tag === 'A' ||
+            (tag === 'BUTTON' && target !== pttBtn) ||
             (target && target.isContentEditable)
           ) {
             return;
           }
+          // 按住空格时浏览器会对 keydown 自动重复；如果只拦截第一次，
+          // 后续 repeat 事件仍会执行默认滚动，页面就会一路滚到底。
           event.preventDefault();
+          if (event.repeat) return;
+          unlockPttFx();
           requestTalk();
         });
         document.addEventListener('keyup', (event) => {
           if (event.code !== 'Space') return;
-          if (ptt.wantTalking || ptt.granted) stopTalking();
+          if (ptt.wantTalking || ptt.granted) {
+            event.preventDefault();
+            stopTalking();
+          }
         });
 
         pttAudioUnlockBtn.onclick = () => {
           void resumePttPlayback();
         };
+
+        pttFxBtn.onclick = () => {
+          pttFx.enabled = !pttFx.enabled;
+          storageSet('pipeshare:pttFx', pttFx.enabled ? 'on' : 'off');
+          renderPttFx();
+          if (!pttFx.enabled) {
+            stopPttStatic();
+          } else {
+            unlockPttFx();
+            if (ptt.holderId && ptt.holderId !== selfId) startPttStatic();
+          }
+        };
+        renderPttFx();
 
         updatePttUi();
 
@@ -3372,11 +3799,17 @@
           showAlert(message, '⚠️', 4000);
           pendingJoinCode = null;
 
+          const action = data && data.action;
           // 重连时房间已过期 / 已满，或邀请码无效：退回入口页并保留房间码方便重试
           const retryCode = (data && data.code) || joinCodeInput.value;
           showGate();
           clearRoomInUrl();
-          joinCodeInput.value = retryCode || '';
+          if (action === 'create') {
+            // 创建失败时保留自定义房号，用户改一下就能重试
+            createRoomBtn.disabled = false;
+          } else {
+            joinCodeInput.value = retryCode || '';
+          }
         });
 
         socket.on('server:ready', (data) => {
@@ -3422,6 +3855,40 @@
         });
 
         /* ------------------------------ 创建 / 加入房间 ------------------------------ */
+        let createMode = 'random';
+
+        function setCreateMode(mode) {
+          createMode = mode === 'custom' ? 'custom' : 'random';
+          segBtns.forEach((btn) => {
+            btn.classList.toggle(
+              'active',
+              btn.dataset.createMode === createMode,
+            );
+          });
+          createCodeInput.classList.toggle('hidden', createMode !== 'custom');
+          if (createMode === 'custom') {
+            createModeHint.textContent =
+              '输入 4-12 位字母或数字作为固定房号，方便口头传达。';
+            createCodeInput.focus();
+          } else {
+            createModeHint.textContent =
+              '系统会自动生成 6 位随机房号，创建后即可分享邀请。';
+          }
+        }
+
+        segBtns.forEach((btn) => {
+          btn.onclick = () => setCreateMode(btn.dataset.createMode);
+        });
+
+        createCodeInput.addEventListener('input', () => {
+          const pos = createCodeInput.selectionStart;
+          createCodeInput.value = normalizeCode(createCodeInput.value);
+          createCodeInput.setSelectionRange(pos, pos);
+        });
+        createCodeInput.addEventListener('keydown', (event) => {
+          if (event.key === 'Enter') createRoomBtn.click();
+        });
+
         createRoomBtn.onclick = () => {
           if (!socket.connected) {
             return showAlert('尚未连接到服务器，请稍候…', '📡');
@@ -3432,8 +3899,20 @@
           if (name) storageSet('pipeshare:nickname', name);
           else storageRemove('pipeshare:nickname');
 
+          let roomCode;
+          if (createMode === 'custom') {
+            roomCode = normalizeCode(createCodeInput.value);
+            if (roomCode.length < 4) {
+              createCodeInput.focus();
+              return showAlert('自定义房号至少需要 4 位字母或数字。', '⌨️');
+            }
+          }
+
           createRoomBtn.disabled = true;
-          socket.emit('room:create', { nickname: name || undefined });
+          socket.emit('room:create', {
+            nickname: name || undefined,
+            roomCode: roomCode || undefined,
+          });
           setTimeout(() => {
             createRoomBtn.disabled = false;
           }, 1200);
@@ -3821,7 +4300,7 @@
           link.href = url;
           link.download = fileName || 'download';
           link.textContent = '点此手动保存';
-          link.style.color = '#7dd3fc';
+          link.style.color = '#67e8f9';
           line.appendChild(link);
           logBox.appendChild(line);
           trimLog();
@@ -4526,7 +5005,7 @@
           if (key) finishTransfer(key, '已完成', 2500);
           if (key) {
             const line = document.createElement('div');
-            line.style.color = '#4cd964';
+            line.style.color = '#34d399';
             line.textContent = `✅ [${timeStr()}] 传输完成：${name}（${size}${duration ? `，耗时 ${duration}` : ''}）`;
             logBox.appendChild(line);
             trimLog();
