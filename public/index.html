@@ -2,16 +2,21 @@
 <html lang="zh-CN">
   <head>
     <meta charset="UTF-8" />
-    <meta
-      name="viewport"
-      content="width=device-width, initial-scale=1.0"
-    />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta
       name="description"
       content="基于 WebSocket 分片传输的零无感快传工具，私有房间隔离，不占服务器磁盘，文件、文本秒级跨端互传"
     />
-    <meta name="theme-color" content="#0891b2" media="(prefers-color-scheme: light)" />
-    <meta name="theme-color" content="#061a20" media="(prefers-color-scheme: dark)" />
+    <meta
+      name="theme-color"
+      content="#0891b2"
+      media="(prefers-color-scheme: light)"
+    />
+    <meta
+      name="theme-color"
+      content="#061a20"
+      media="(prefers-color-scheme: dark)"
+    />
     <meta name="application-name" content="PipeShare" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="mobile-web-app-capable" content="yes" />
@@ -101,9 +106,21 @@
         background-color: var(--bg-main);
         /* 青、蓝、绿三色柔光，青色占主导 */
         background-image:
-          radial-gradient(circle at 12% 0%, var(--bg-glow-cyan), transparent 42%),
-          radial-gradient(circle at 88% 6%, var(--bg-glow-blue), transparent 40%),
-          radial-gradient(circle at 50% 100%, var(--bg-glow-green), transparent 46%);
+          radial-gradient(
+            circle at 12% 0%,
+            var(--bg-glow-cyan),
+            transparent 42%
+          ),
+          radial-gradient(
+            circle at 88% 6%,
+            var(--bg-glow-blue),
+            transparent 40%
+          ),
+          radial-gradient(
+            circle at 50% 100%,
+            var(--bg-glow-green),
+            transparent 46%
+          );
         background-attachment: fixed;
         color: var(--text-main);
         margin: 0;
@@ -393,7 +410,9 @@
         text-decoration: none;
         font-weight: 600;
         border-radius: 30px;
-        transition: color 0.2s, background-color 0.2s;
+        transition:
+          color 0.2s,
+          background-color 0.2s;
       }
       .repo-link svg {
         width: 15px;
@@ -1401,7 +1420,12 @@
           </span>
         </h3>
 
-        <button id="ptt-btn" class="ptt-btn" type="button" aria-label="按住说话">
+        <button
+          id="ptt-btn"
+          class="ptt-btn"
+          type="button"
+          aria-label="按住说话"
+        >
           <span class="ptt-icon" aria-hidden="true">🎙️</span>
           <span class="ptt-label" id="ptt-btn-label">按住说话</span>
         </button>
@@ -1424,7 +1448,8 @@
 
         <p class="hint" id="ptt-hint">
           按住按钮说话，房间内所有设备都能实时听到，同一时间只有一人在讲；松开按钮结束。语音经现有
-          WebSocket 实时转发，无需额外配置。内置对讲机底噪与结束时的“啾”提示音，可用右上角「音效」开关关闭。
+          WebSocket
+          实时转发，无需额外配置。内置按下确认音、静噪、对讲机底噪与结束提示音，可用右上角「音效」开关关闭。
         </p>
       </div>
 
@@ -1698,12 +1723,23 @@
           sources: new Set(),
         };
 
-        // 对讲机音效：底噪（嘶嘶声）与结束时的“啾”提示音，全部在本地合成
+        // 对讲机音效：静噪、底噪与结束提示音，优先用 public/sounds 里的真实录音，
+        // 加载或解码失败时退回本地合成
         const pttFx = {
           enabled: storageGet('pipeshare:pttFx') !== 'off',
           noiseBuffer: null,
           noiseSource: null,
           noiseGain: null,
+          noiseAux: [],
+          rawStatic: null,
+          rawBeep: null,
+          staticBuffer: null,
+          staticGain: 1,
+          beepBuffer: null,
+          beepGain: 1,
+          assetsPromise: null,
+          decodePromise: null,
+          master: null,
         };
 
         const dialogQueue = [];
@@ -1779,7 +1815,8 @@
         }
 
         function printLog(msg, type = 'info') {
-          const emoji = type === 'success' ? '✅' : type === 'error' ? '❌' : '>';
+          const emoji =
+            type === 'success' ? '✅' : type === 'error' ? '❌' : '>';
           const line = document.createElement('div');
           line.textContent = `${emoji} [${timeStr()}] ${msg}`;
           if (type === 'error') line.style.color = '#f87171';
@@ -1827,9 +1864,7 @@
             h2 = (h2 + bytes[i] * (i + 1)) >>> 0;
             h2 = Math.imul(h2 ^ (h2 >>> 13), 0x5bd1e995);
           }
-          return `${(h1 >>> 0).toString(16).padStart(8, '0')}${(
-            h2 >>> 0
-          )
+          return `${(h1 >>> 0).toString(16).padStart(8, '0')}${(h2 >>> 0)
             .toString(16)
             .padStart(8, '0')}`;
         }
@@ -1903,9 +1938,7 @@
         let opfsDirPromise = null;
 
         function getReceiveDir() {
-          if (
-            typeof navigator.storage?.getDirectory !== 'function'
-          ) {
+          if (typeof navigator.storage?.getDirectory !== 'function') {
             return Promise.resolve(null);
           }
           if (!opfsDirPromise) {
@@ -1993,7 +2026,9 @@
           let seq = 0;
           while (seq < totalChunks && present.has(seq)) {
             try {
-              const file = await (await dir.getFileHandle(chunkFileName(seq))).getFile();
+              const file = await (
+                await dir.getFileHandle(chunkFileName(seq))
+              ).getFile();
               if (file.size !== expectedChunkSize(seq, chunkSize, fileSize)) {
                 break;
               }
@@ -2148,7 +2183,10 @@
           if (!item || !item.el) return;
           const total = Number(item.total) || 0;
           const loaded = Math.max(0, Number(item.loaded) || 0);
-          const terminal = item.status === '已完成' || item.status === '已中断' || item.status === '已拒绝';
+          const terminal =
+            item.status === '已完成' ||
+            item.status === '已中断' ||
+            item.status === '已拒绝';
           let percent = total > 0 ? Math.min(100, (loaded / total) * 100) : 0;
           if (item.status === '已完成') percent = 100;
 
@@ -2172,9 +2210,7 @@
             item.metaRightEl.textContent = `${formatBytes(item.speed)}/s`;
           } else {
             item.metaRightEl.textContent =
-              total > 0 && !terminal
-                ? `${Math.round(percent)}%`
-                : '';
+              total > 0 && !terminal ? `${Math.round(percent)}%` : '';
           }
         }
 
@@ -2197,9 +2233,8 @@
             const delta = nextLoaded - item.lastLoaded;
             if (seconds >= 0.2 && delta >= 0) {
               const instant = delta / seconds;
-              item.speed = item.speed > 0
-                ? item.speed * 0.65 + instant * 0.35
-                : instant;
+              item.speed =
+                item.speed > 0 ? item.speed * 0.65 + instant * 0.35 : instant;
               item.lastAt = now;
               item.lastLoaded = nextLoaded;
             }
@@ -2254,7 +2289,11 @@
 
         function hasActiveTransfers() {
           for (const item of transferState.values()) {
-            if (item.status !== '已完成' && item.status !== '已中断' && item.status !== '已拒绝') {
+            if (
+              item.status !== '已完成' &&
+              item.status !== '已中断' &&
+              item.status !== '已拒绝'
+            ) {
               return true;
             }
           }
@@ -2533,7 +2572,9 @@
         function isIosDevice() {
           const ua = navigator.userAgent || '';
           if (/iPad|iPhone|iPod/.test(ua)) return true;
-          return navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1;
+          return (
+            navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1
+          );
         }
 
         function updateInstallButtons() {
@@ -2556,7 +2597,11 @@
                 showAlert('正在安装 PipeShare…', '📲', 4000);
               }
             } catch {
-              showAlert('安装窗口打开失败，请使用浏览器菜单手动安装。', '⚠️', 4000);
+              showAlert(
+                '安装窗口打开失败，请使用浏览器菜单手动安装。',
+                '⚠️',
+                4000,
+              );
             }
             updateInstallButtons();
             return;
@@ -2590,7 +2635,9 @@
         });
 
         if (window.matchMedia) {
-          const standaloneQuery = window.matchMedia('(display-mode: standalone)');
+          const standaloneQuery = window.matchMedia(
+            '(display-mode: standalone)',
+          );
           if (standaloneQuery.addEventListener) {
             standaloneQuery.addEventListener('change', updateInstallButtons);
           }
@@ -2618,9 +2665,7 @@
 
         function isPageActive() {
           // 页面可见且窗口处于焦点状态时，用户已经能看到页面提示，不再重复弹系统通知
-          return (
-            document.visibilityState === 'visible' && document.hasFocus()
-          );
+          return document.visibilityState === 'visible' && document.hasFocus();
         }
 
         function renderNotifyStatus() {
@@ -2656,7 +2701,9 @@
           }
         }
 
-        async function requestNotificationPermission({ interactive = true } = {}) {
+        async function requestNotificationPermission({
+          interactive = true,
+        } = {}) {
           if (!notificationsSupported()) {
             if (interactive) {
               showAlert('系统通知需要 HTTPS 或 localhost 环境。', '🔕', 5000);
@@ -2706,7 +2753,8 @@
             return false;
           }
 
-          const iconUrl = new URL('icons/icon-192.png', window.location.href).href;
+          const iconUrl = new URL('icons/icon-192.png', window.location.href)
+            .href;
           const payload = {
             body: String(options.body || '').slice(0, 200),
             icon: iconUrl,
@@ -2721,7 +2769,10 @@
                 ? await navigator.serviceWorker.getRegistration()
                 : null;
 
-            if (registration && typeof registration.showNotification === 'function') {
+            if (
+              registration &&
+              typeof registration.showNotification === 'function'
+            ) {
               await registration.showNotification(title, payload);
               return true;
             }
@@ -2979,7 +3030,8 @@
               ptt.wantTalking = false;
               updatePttUi();
               const message =
-                err && (err.name === 'NotAllowedError' || err.name === 'SecurityError')
+                err &&
+                (err.name === 'NotAllowedError' || err.name === 'SecurityError')
                   ? '麦克风权限被拒绝，请在浏览器中允许后重试。'
                   : `无法开启麦克风：${(err && err.message) || '未知错误'}`;
               printLog(message, 'error');
@@ -3025,7 +3077,9 @@
           printLog('已拿到话筒，正在开启麦克风…');
 
           if (!window.AudioContext && !window.webkitAudioContext) {
-            return failSpeaking('当前浏览器不支持 Web Audio，无法使用语音对讲。');
+            return failSpeaking(
+              '当前浏览器不支持 Web Audio，无法使用语音对讲。',
+            );
           }
 
           try {
@@ -3039,6 +3093,8 @@
 
             startPttCapture(ptt.stream);
             startPttStatic();
+            // 话筒已就绪，用一声短提示音告诉用户可以开口了
+            playPttStartBeep();
             printLog('麦克风已开启，房间内设备可实时收听。', 'success');
             updatePttUi();
           } catch (err) {
@@ -3048,7 +3104,8 @@
             failSpeaking(
               denied
                 ? '麦克风权限被拒绝，请在浏览器地址栏的权限设置中允许后重试。'
-                : (err && err.message) || '无法开启麦克风，请检查设备与权限设置。',
+                : (err && err.message) ||
+                    '无法开启麦克风，请检查设备与权限设置。',
             );
           }
         }
@@ -3287,90 +3344,394 @@
           ptt.audioBlocked = false;
         }
 
-        /* ---------------------- 对讲机音效：底噪 + 结束提示音 ---------------------- */
+        /* ---------------------- 对讲机音效：静噪 + 底噪 + 结束提示 ---------------------- */
 
-        /** 生成一段循环播放的“电台底噪”，带一点平滑滤波，避免听起来像纯白噪声 */
+        // 真实音效资源（public/sounds），加载失败时自动退回下面的本地合成
+        const PTT_FX_SOURCES = {
+          static: 'sounds/ptt-static.mp3',
+          beep: 'sounds/ptt-beep.mp3',
+        };
+
+        // 所有对讲音效的总音量（0~1）：调大更明显，调小更克制
+        const PTT_FX_VOLUME = 0.5;
+
+        /** 所有音效统一走这个总音量节点，不影响语音本身 */
+        function pttFxOutput(ctx) {
+          if (!pttFx.master || pttFx.master.context !== ctx) {
+            pttFx.master = ctx.createGain();
+            pttFx.master.gain.value = PTT_FX_VOLUME;
+            pttFx.master.connect(ctx.destination);
+          }
+          return pttFx.master;
+        }
+
+        /** 页面加载后就开始下载，第一次按住时基本已经就绪 */
+        function preloadPttFxAssets() {
+          if (pttFx.assetsPromise) return pttFx.assetsPromise;
+          const load = (url) =>
+            fetch(url, { cache: 'force-cache' })
+              .then((res) => (res.ok ? res.arrayBuffer() : null))
+              .catch(() => null);
+          pttFx.assetsPromise = Promise.all([
+            load(PTT_FX_SOURCES.static),
+            load(PTT_FX_SOURCES.beep),
+          ]).then(([staticRaw, beepRaw]) => {
+            pttFx.rawStatic = staticRaw;
+            pttFx.rawBeep = beepRaw;
+            // 解码不需要用户手势，提前做好，第一次按下就能用真实音效
+            const ctx = ensurePttPlaybackContext();
+            if (ctx) void decodePttFxAssets(ctx);
+          });
+          return pttFx.assetsPromise;
+        }
+
+        /** 找出峰值，返回把峰值拉到 targetPeak 所需的增益，避免不同素材音量差太多 */
+        function pttPeakGain(buffer, targetPeak) {
+          let peak = 0;
+          for (let ch = 0; ch < buffer.numberOfChannels; ch += 1) {
+            const data = buffer.getChannelData(ch);
+            for (let i = 0; i < data.length; i += 1) {
+              const value = Math.abs(data[i]);
+              if (value > peak) peak = value;
+            }
+          }
+          return peak > 0.0001 ? Math.min(1, targetPeak / peak) : 1;
+        }
+
+        /** 按有效值归一，适合底噪这种带尖峰、但整体响度才是关键的材料 */
+        function pttRmsGain(buffer, targetRms) {
+          let sum = 0;
+          let count = 0;
+          let peak = 0;
+          for (let ch = 0; ch < buffer.numberOfChannels; ch += 1) {
+            const data = buffer.getChannelData(ch);
+            for (let i = 0; i < data.length; i += 1) {
+              const value = data[i];
+              sum += value * value;
+              const abs = Math.abs(value);
+              if (abs > peak) peak = abs;
+            }
+            count += data.length;
+          }
+          const rms = Math.sqrt(sum / Math.max(1, count));
+          if (rms <= 0.0001) return 1;
+          const desired = targetRms / rms;
+          // 放大后不要超过满刻度，避免削波
+          const safe = peak > 0.0001 ? 0.98 / peak : desired;
+          return Math.min(desired, safe);
+        }
+
+        /** 剪掉首尾静音，避免提示音延迟、循环时出现空档 */
+        function trimPttBuffer(ctx, buffer, padSec = 0.02) {
+          const channels = [];
+          let peak = 0;
+          for (let ch = 0; ch < buffer.numberOfChannels; ch += 1) {
+            const data = buffer.getChannelData(ch);
+            channels.push(data);
+            for (let i = 0; i < data.length; i += 1) {
+              const value = Math.abs(data[i]);
+              if (value > peak) peak = value;
+            }
+          }
+          const threshold = Math.max(0.0005, peak * 0.02);
+          const loud = (i) =>
+            channels.some((data) => Math.abs(data[i]) >= threshold);
+          let start = 0;
+          let end = buffer.length - 1;
+          while (start < buffer.length && !loud(start)) start += 1;
+          while (end > start && !loud(end)) end -= 1;
+          if (start >= end) return buffer;
+          const pad = Math.floor(padSec * buffer.sampleRate);
+          start = Math.max(0, start - pad);
+          end = Math.min(buffer.length - 1, end + pad);
+          const out = ctx.createBuffer(
+            buffer.numberOfChannels,
+            end - start + 1,
+            buffer.sampleRate,
+          );
+          for (let ch = 0; ch < buffer.numberOfChannels; ch += 1) {
+            out.getChannelData(ch).set(channels[ch].subarray(start, end + 1));
+          }
+          return out;
+        }
+
+        /** 把首尾交叉淡化，循环播放时接缝处不会“咔”一下 */
+        function makeSeamlessLoop(ctx, buffer, fadeSec = 0.08) {
+          const fade = Math.min(
+            Math.floor(fadeSec * buffer.sampleRate),
+            Math.floor(buffer.length / 4),
+          );
+          if (fade < 8) return buffer;
+          const outLen = buffer.length - fade;
+          const out = ctx.createBuffer(
+            buffer.numberOfChannels,
+            outLen,
+            buffer.sampleRate,
+          );
+          for (let ch = 0; ch < buffer.numberOfChannels; ch += 1) {
+            const src = buffer.getChannelData(ch);
+            const dst = out.getChannelData(ch);
+            dst.set(src.subarray(0, outLen));
+            for (let i = 0; i < fade; i += 1) {
+              const weight = i / fade;
+              dst[i] = src[i] * weight + src[outLen + i] * (1 - weight);
+            }
+          }
+          return out;
+        }
+
+        /** 解码真实音效；只做一次，失败时保持 null 并继续用合成音 */
+        function decodePttFxAssets(ctx) {
+          if (pttFx.decodePromise) return pttFx.decodePromise;
+          pttFx.decodePromise = preloadPttFxAssets()
+            .then(() => {
+              const jobs = [];
+              if (pttFx.rawStatic && !pttFx.staticBuffer) {
+                const raw = pttFx.rawStatic;
+                jobs.push(
+                  ctx.decodeAudioData(raw.slice(0)).then(
+                    (buffer) => {
+                      const trimmed = trimPttBuffer(ctx, buffer);
+                      pttFx.staticGain = pttRmsGain(trimmed, 0.018);
+                      pttFx.staticBuffer = makeSeamlessLoop(ctx, trimmed);
+                    },
+                    () => {},
+                  ),
+                );
+              }
+              if (pttFx.rawBeep && !pttFx.beepBuffer) {
+                const raw = pttFx.rawBeep;
+                jobs.push(
+                  ctx.decodeAudioData(raw.slice(0)).then(
+                    (buffer) => {
+                      pttFx.beepGain = pttPeakGain(buffer, 0.38);
+                      pttFx.beepBuffer = trimPttBuffer(ctx, buffer);
+                    },
+                    () => {},
+                  ),
+                );
+              }
+              return Promise.all(jobs);
+            })
+            .catch(() => {});
+          return pttFx.decodePromise;
+        }
+
+        /**
+         * 生成一段循环播放的“电台底噪”：宽带白噪声叠加稀疏的噼啪爆点。
+         * 真正的对讲机噪声是宽带的，滤波交给播放时的 BiquadFilter，
+         * 这样同一段缓冲既能当持续底噪，也能截一小段当静噪尾音。
+         */
         function getPttNoiseBuffer(ctx) {
-          if (pttFx.noiseBuffer && pttFx.noiseBuffer.sampleRate === ctx.sampleRate) {
+          if (
+            pttFx.noiseBuffer &&
+            pttFx.noiseBuffer.sampleRate === ctx.sampleRate
+          ) {
             return pttFx.noiseBuffer;
           }
           const length = Math.floor(ctx.sampleRate * 2);
           const buffer = ctx.createBuffer(1, length, ctx.sampleRate);
           const data = buffer.getChannelData(0);
-          let smoothed = 0;
+          // 爆点约 25ms 衰减到千分之一，平均每秒 6 次
+          const crackleDecay = Math.pow(0.001, 1 / (0.025 * ctx.sampleRate));
+          const crackleChance = 6 / ctx.sampleRate;
+          let crackle = 0;
           for (let i = 0; i < length; i += 1) {
-            const white = Math.random() * 2 - 1;
-            smoothed = smoothed * 0.82 + white * 0.18;
-            data[i] = smoothed;
+            if (Math.random() < crackleChance) {
+              crackle = 0.5 + Math.random() * 0.5;
+            }
+            crackle *= crackleDecay;
+            data[i] = (Math.random() * 2 - 1) * (0.55 + crackle);
           }
           pttFx.noiseBuffer = buffer;
           return buffer;
         }
 
-        /** 讲话 / 收听期间持续播放的轻微电流底噪 */
+        /** 真实电台的窄带滤波链：300~3200Hz，再抬一点 1.8kHz 的清晰度 */
+        function connectPttRadioBand(ctx, input) {
+          const highpass = ctx.createBiquadFilter();
+          highpass.type = 'highpass';
+          highpass.frequency.value = 300;
+          highpass.Q.value = 0.7;
+
+          const lowpass = ctx.createBiquadFilter();
+          lowpass.type = 'lowpass';
+          lowpass.frequency.value = 3200;
+          lowpass.Q.value = 0.7;
+
+          const presence = ctx.createBiquadFilter();
+          presence.type = 'peaking';
+          presence.frequency.value = 1800;
+          presence.Q.value = 0.9;
+          presence.gain.value = 3;
+
+          input.connect(highpass).connect(lowpass).connect(presence);
+          return presence;
+        }
+
+        /** 按下 / 松开时那一下很短的“咔哒”机械声 */
+        function playPttClick(at, level = 0.08) {
+          const ctx = ensurePttPlaybackContext();
+          if (!ctx || ctx.state !== 'running') return;
+          const source = ctx.createBufferSource();
+          source.buffer = getPttNoiseBuffer(ctx);
+          const filter = ctx.createBiquadFilter();
+          filter.type = 'highpass';
+          filter.frequency.value = 1600;
+          const gain = ctx.createGain();
+          gain.gain.setValueAtTime(Math.max(0.0001, level), at);
+          gain.gain.exponentialRampToValueAtTime(0.0001, at + 0.025);
+          source.connect(filter).connect(gain).connect(pttFxOutput(ctx));
+          source.start(at, Math.random() * 1.8, 0.05);
+          source.onended = () => {
+            try {
+              source.disconnect();
+              filter.disconnect();
+              gain.disconnect();
+            } catch {
+              /* ignore */
+            }
+          };
+        }
+
+        /** 拿到话筒后的“可以说话了”确认音：两声上行短音，和结束提示音明显区分 */
+        function playPttStartBeep() {
+          if (!pttFx.enabled) return;
+          const ctx = ensurePttPlaybackContext();
+          if (!ctx || ctx.state !== 'running') return;
+
+          const now = ctx.currentTime + 0.01;
+          const beep = ctx.createGain();
+          beep.gain.setValueAtTime(0.0001, now);
+          beep.gain.exponentialRampToValueAtTime(0.22, now + 0.008);
+          beep.gain.setValueAtTime(0.22, now + 0.07);
+          // 中间轻轻压低一下，掩盖换音高时的接缝
+          beep.gain.exponentialRampToValueAtTime(0.02, now + 0.085);
+          beep.gain.exponentialRampToValueAtTime(0.22, now + 0.105);
+          beep.gain.setValueAtTime(0.22, now + 0.17);
+          beep.gain.exponentialRampToValueAtTime(0.0001, now + 0.21);
+          beep.connect(pttFxOutput(ctx));
+
+          const tone = ctx.createOscillator();
+          tone.type = 'sine';
+          tone.frequency.setValueAtTime(1040, now);
+          tone.frequency.setValueAtTime(1480, now + 0.085);
+          tone.connect(beep);
+          tone.start(now);
+          tone.stop(now + 0.22);
+          tone.onended = () => {
+            try {
+              tone.disconnect();
+              beep.disconnect();
+            } catch {
+              /* ignore */
+            }
+          };
+        }
+
+        /** 讲话 / 收听期间持续播放的轻微底噪，开头带静噪打开的爆音 */
         function startPttStatic() {
           if (!pttFx.enabled) return;
           const ctx = ensurePttPlaybackContext();
           if (!ctx || ctx.state !== 'running') return;
           if (pttFx.noiseSource) return;
 
+          // 还没解码完就先让解码跑起来，这一次仍用合成底噪
+          if (!pttFx.staticBuffer) void decodePttFxAssets(ctx);
+
+          const now = ctx.currentTime;
           const source = ctx.createBufferSource();
-          source.buffer = getPttNoiseBuffer(ctx);
+          const realStatic = pttFx.staticBuffer;
+          source.buffer = realStatic || getPttNoiseBuffer(ctx);
           source.loop = true;
 
-          const highpass = ctx.createBiquadFilter();
-          highpass.type = 'highpass';
-          highpass.frequency.value = 900;
+          const env = ctx.createGain();
+          const aux = [env];
+          if (realStatic) {
+            // 真实底噪自带强弱变化，只需要很短的淡入，避免起点“咔”
+            const level = Math.max(0.0002, pttFx.staticGain);
+            env.gain.setValueAtTime(0.0001, now);
+            env.gain.exponentialRampToValueAtTime(level, now + 0.05);
+            source.connect(env).connect(pttFxOutput(ctx));
+          } else {
+            // 包络：按下瞬间“噗”地打开静噪，再稳定在很轻的底噪
+            env.gain.setValueAtTime(0.0001, now);
+            env.gain.exponentialRampToValueAtTime(0.11, now + 0.012);
+            env.gain.exponentialRampToValueAtTime(0.02, now + 0.28);
 
-          const lowpass = ctx.createBiquadFilter();
-          lowpass.type = 'lowpass';
-          lowpass.frequency.value = 5600;
+            // 轻微的音量抖动，模拟信号强弱变化，避免听起来像一条死噪声
+            const flutter = ctx.createGain();
+            flutter.gain.value = 1;
+            const lfo = ctx.createOscillator();
+            lfo.type = 'sine';
+            lfo.frequency.value = 7.3;
+            const lfoDepth = ctx.createGain();
+            lfoDepth.gain.value = 0.18;
+            lfo.connect(lfoDepth).connect(flutter.gain);
+            lfo.start(now);
 
-          const gain = ctx.createGain();
-          const now = ctx.currentTime;
-          // 按下瞬间先来一下“静噪开启”的爆音，再稳定在很轻的底噪
-          gain.gain.setValueAtTime(0.0001, now);
-          gain.gain.exponentialRampToValueAtTime(0.055, now + 0.02);
-          gain.gain.exponentialRampToValueAtTime(0.02, now + 0.18);
-
-          source
-            .connect(highpass)
-            .connect(lowpass)
-            .connect(gain)
-            .connect(ctx.destination);
+            const band = connectPttRadioBand(ctx, source);
+            band.connect(env).connect(flutter).connect(pttFxOutput(ctx));
+            aux.push(band, flutter, lfo, lfoDepth);
+          }
           source.start(now);
-          source.onended = () => {
-            try {
-              source.disconnect();
-            } catch {
-              /* ignore */
-            }
-          };
+
+          // 静噪打开时机械开关的“咔哒”
+          playPttClick(now + 0.001, 0.07);
 
           pttFx.noiseSource = source;
-          pttFx.noiseGain = gain;
+          pttFx.noiseGain = env;
+          pttFx.noiseAux = aux;
         }
 
         function stopPttStatic() {
           const source = pttFx.noiseSource;
           const gain = pttFx.noiseGain;
+          const aux = pttFx.noiseAux || [];
           pttFx.noiseSource = null;
           pttFx.noiseGain = null;
+          pttFx.noiseAux = [];
           if (!source) return;
           try {
             const ctx = source.context;
             const now = ctx.currentTime;
             gain.gain.cancelScheduledValues(now);
             gain.gain.setValueAtTime(Math.max(0.0001, gain.gain.value), now);
-            gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.06);
-            source.stop(now + 0.08);
+            gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.05);
+            source.stop(now + 0.07);
+            aux.forEach((node) => {
+              if (typeof node.stop === 'function') {
+                try {
+                  node.stop(now + 0.07);
+                } catch {
+                  /* 节点可能已经停止 */
+                }
+              }
+            });
+            source.onended = () => {
+              try {
+                source.disconnect();
+              } catch {
+                /* ignore */
+              }
+              aux.forEach((node) => {
+                try {
+                  node.disconnect();
+                } catch {
+                  /* ignore */
+                }
+              });
+            };
           } catch {
             /* 节点可能已经停止 */
           }
         }
 
         /**
-         * 结束讲话的“啾”：一段从高到低的下滑音，外加一点电台尾噪。
+         * 结束讲话的“罗杰音”，按真实对讲机的顺序：
+         *   1. 结束提示音（优先用 public/sounds/ptt-beep.mp3，缺失时本地合成 1.2kHz 音）；
+         *   2. 载波消失时的静噪尾音（一小段噪声）；
+         *   3. 静噪关闭的“咔哒”声。
          * delayUntil 用于收听端：等已经排队的声音播完再响，保证它是最后一声。
          */
         function playPttRogerBeep(delayUntil = 0) {
@@ -3378,47 +3739,92 @@
           const ctx = ensurePttPlaybackContext();
           if (!ctx || ctx.state !== 'running') return;
 
-          const now = Math.max(
-            ctx.currentTime + 0.02,
-            Number(delayUntil) || 0,
-          );
-          const master = ctx.createGain();
-          master.gain.setValueAtTime(0.0001, now);
-          master.gain.exponentialRampToValueAtTime(0.16, now + 0.015);
-          master.gain.exponentialRampToValueAtTime(0.0001, now + 0.26);
-          master.connect(ctx.destination);
+          if (!pttFx.beepBuffer) void decodePttFxAssets(ctx);
 
-          const tone = ctx.createOscillator();
-          tone.type = 'sine';
-          tone.frequency.setValueAtTime(1900, now);
-          tone.frequency.exponentialRampToValueAtTime(620, now + 0.22);
-          tone.connect(master);
-          tone.start(now);
-          tone.stop(now + 0.27);
+          const now = Math.max(ctx.currentTime + 0.02, Number(delayUntil) || 0);
 
-          // 低八度三角波让提示音更接近小对讲机的塑料味
-          const sub = ctx.createOscillator();
-          sub.type = 'triangle';
-          sub.frequency.setValueAtTime(950, now);
-          sub.frequency.exponentialRampToValueAtTime(310, now + 0.22);
-          const subGain = ctx.createGain();
-          subGain.gain.value = 0.3;
-          sub.connect(subGain).connect(master);
-          sub.start(now);
-          sub.stop(now + 0.27);
+          let tailAt = now + 0.12;
+          const beepBuffer = pttFx.beepBuffer;
+          if (beepBuffer) {
+            // 1. 真实录音的结束提示音，按素材自身长度决定尾音起点
+            const source = ctx.createBufferSource();
+            source.buffer = beepBuffer;
+            const gain = ctx.createGain();
+            gain.gain.value = pttFx.beepGain;
+            source.connect(gain).connect(pttFxOutput(ctx));
+            source.start(now);
+            tailAt = now + Math.max(0.1, beepBuffer.duration);
+            source.onended = () => {
+              try {
+                source.disconnect();
+                gain.disconnect();
+              } catch {
+                /* ignore */
+              }
+            };
+          } else {
+            // 1. 合成提示音：基频 + 少量二次谐波，接近小喇叭的塑料音色
+            const beep = ctx.createGain();
+            beep.gain.setValueAtTime(0.0001, now);
+            beep.gain.exponentialRampToValueAtTime(0.13, now + 0.008);
+            beep.gain.setValueAtTime(0.13, now + 0.1);
+            beep.gain.exponentialRampToValueAtTime(0.0001, now + 0.15);
+            beep.connect(pttFxOutput(ctx));
 
+            const tone = ctx.createOscillator();
+            tone.type = 'sine';
+            tone.frequency.setValueAtTime(1240, now);
+            tone.frequency.exponentialRampToValueAtTime(1150, now + 0.14);
+            tone.connect(beep);
+
+            const harmonic = ctx.createOscillator();
+            harmonic.type = 'sine';
+            harmonic.frequency.setValueAtTime(2480, now);
+            harmonic.frequency.exponentialRampToValueAtTime(2300, now + 0.14);
+            const harmonicGain = ctx.createGain();
+            harmonicGain.gain.value = 0.18;
+            harmonic.connect(harmonicGain).connect(beep);
+
+            tone.start(now);
+            tone.stop(now + 0.16);
+            harmonic.start(now);
+            harmonic.stop(now + 0.16);
+
+            tone.onended = () => {
+              try {
+                tone.disconnect();
+                harmonic.disconnect();
+                harmonicGain.disconnect();
+                beep.disconnect();
+              } catch {
+                /* ignore */
+              }
+            };
+          }
+
+          // 2. 静噪尾音：载波断开后的一小段噪声，随后迅速消失
           const tail = ctx.createBufferSource();
           tail.buffer = getPttNoiseBuffer(ctx);
-          const tailFilter = ctx.createBiquadFilter();
-          tailFilter.type = 'bandpass';
-          tailFilter.frequency.value = 2400;
-          tailFilter.Q.value = 0.7;
           const tailGain = ctx.createGain();
-          tailGain.gain.setValueAtTime(0.07, now);
-          tailGain.gain.exponentialRampToValueAtTime(0.0001, now + 0.1);
-          tail.connect(tailFilter).connect(tailGain).connect(ctx.destination);
-          tail.start(now);
-          tail.stop(now + 0.12);
+          tailGain.gain.setValueAtTime(0.0001, tailAt);
+          tailGain.gain.exponentialRampToValueAtTime(0.07, tailAt + 0.01);
+          tailGain.gain.exponentialRampToValueAtTime(0.0001, tailAt + 0.1);
+          const tailBand = connectPttRadioBand(ctx, tail);
+          tailBand.connect(tailGain).connect(pttFxOutput(ctx));
+          tail.start(tailAt, Math.random() * 1.6, 0.14);
+
+          // 3. 静噪关闭的“咔哒”
+          playPttClick(tailAt + 0.085, 0.06);
+
+          tail.onended = () => {
+            try {
+              tail.disconnect();
+              tailBand.disconnect();
+              tailGain.disconnect();
+            } catch {
+              /* ignore */
+            }
+          };
         }
 
         function renderPttFx() {
@@ -3430,10 +3836,12 @@
             : '点击开启对讲机底噪与结束提示音';
         }
 
-        /** 由用户手势触发，尽量让音效上下文进入 running 状态 */
+        /** 由用户手势触发，尽量让音效上下文进入 running 状态，并解码真实音效 */
         function unlockPttFx() {
           const ctx = ensurePttPlaybackContext();
-          if (!ctx || ctx.state === 'running') return;
+          if (!ctx) return;
+          void decodePttFxAssets(ctx);
+          if (ctx.state === 'running') return;
           ctx.resume().then(
             () => {
               if (ptt.holderId && ptt.holderId !== selfId) startPttStatic();
@@ -3572,7 +3980,7 @@
           const selfWasHolder = Boolean(data && data.holderId === selfId);
           // 只有正在讲话或正在收听时才播放结束提示音，避免旁听到别人的无关释放
           const wasListening = Boolean(ptt.holderId && ptt.holderId !== selfId);
-          // 收听端可能还有一小段语音排在播放时间轴里，让“啾”接在它们后面
+          // 收听端可能还有一小段语音排在播放时间轴里，让结束提示音接在它们后面
           const beepAt = wasListening ? pttPlayback.nextTime : 0;
           ptt.holderId = null;
           ptt.holderName = '';
@@ -3593,9 +4001,7 @@
             printLog('语音发送频率过高，话筒已被收回。', 'error');
             showAlert('语音数据异常，话筒已被收回。', '⚠️', 4000);
           } else if (data && data.reason === 'left') {
-            printLog(
-              `${data.holderName || '对方'} 已离开房间，话筒已释放。`,
-            );
+            printLog(`${data.holderName || '对方'} 已离开房间，话筒已释放。`);
           } else if (selfWasHolder) {
             printLog('已结束讲话');
           } else if (data && data.holderName) {
@@ -3729,6 +4135,7 @@
           }
         };
         renderPttFx();
+        void preloadPttFxAssets();
 
         updatePttUi();
 
@@ -4013,7 +4420,9 @@
           const url = inviteUrl();
           const ok = await copyText(url);
           showAlert(
-            ok ? '邀请链接已复制，发给好友即可加入！' : '复制失败，请手动复制。',
+            ok
+              ? '邀请链接已复制，发给好友即可加入！'
+              : '复制失败，请手动复制。',
             ok ? '🔗' : '❌',
           );
         };
@@ -4061,7 +4470,8 @@
           const text = textInput.value;
 
           if (!canSendText()) return;
-          if (text.length === 0) return showAlert('请输入需要传输的文本内容。', '📝');
+          if (text.length === 0)
+            return showAlert('请输入需要传输的文本内容。', '📝');
 
           deliverText(text);
           textInput.value = '';
@@ -4209,7 +4619,9 @@
           // 采样计算文件指纹，作为接收端临时文件的唯一标识，用于断点续传
           sendBtn.disabled = true;
           printLog('正在计算文件指纹…');
-          const hashes = await Promise.all(files.map((file) => fingerprintFile(file)));
+          const hashes = await Promise.all(
+            files.map((file) => fingerprintFile(file)),
+          );
 
           if (!joined || !connected) {
             refreshSendButtons();
@@ -4733,9 +5145,7 @@
           const message = isMulti
             ? `来自【${senderName}】的 ${files.length} 个文件：\n\n${listText}\n\n合计 ${formatBytes(totalSize)}\n\n${storageHint}完成后自动下载。若浏览器提示“允许下载多个文件”，请点击允许。${resumeHint}${largeHint}`
             : `【${senderName}】想给你发送一个文件：\n\n名称：${files[0].fileName}\n大小：${
-                files[0].fileSize
-                  ? formatBytes(files[0].fileSize)
-                  : '未知大小'
+                files[0].fileSize ? formatBytes(files[0].fileSize) : '未知大小'
               }\n\n${storageHint}完成后自动触发下载。${resumeHint}${largeHint}`;
 
           printLog(
@@ -4745,9 +5155,7 @@
           );
 
           void showSystemNotification(
-            isMulti
-              ? `📥 收到 ${files.length} 个文件`
-              : '📥 收到文件传输邀请',
+            isMulti ? `📥 收到 ${files.length} 个文件` : '📥 收到文件传输邀请',
             {
               body: isMulti
                 ? `${senderName} 发来 ${files.length} 个文件：${listText.replace(/\n/g, '、')}`
@@ -4941,17 +5349,17 @@
           const pending = pendingSends.get(clientTaskId);
 
           if (!pending) {
-            printLog('收到推流指令，但本地文件上下文已丢失，已取消该任务。', 'error');
+            printLog(
+              '收到推流指令，但本地文件上下文已丢失，已取消该任务。',
+              'error',
+            );
             socket.emit('file-share-cancel', { taskToken });
             return;
           }
           if (sendStates.has(taskToken)) return;
 
           const { file, fileName } = pending;
-          const chunkSize = Math.max(
-            1,
-            Number(data.chunkSize) || 512 * 1024,
-          );
+          const chunkSize = Math.max(1, Number(data.chunkSize) || 512 * 1024);
           const windowSize = Math.max(
             1,
             Math.min(64, Number(data.windowSize) || 16),
@@ -5076,7 +5484,11 @@
           const key = data && (data.clientTaskId || data.taskToken);
           if (key) {
             if (getTransfer(key)) {
-              finishTransfer(key, /拒绝/.test(message) ? '已拒绝' : '已中断', 4000);
+              finishTransfer(
+                key,
+                /拒绝/.test(message) ? '已拒绝' : '已中断',
+                4000,
+              );
             }
             cleanupTask(data, { keepTransfer: true });
           }

@@ -355,7 +355,7 @@ async function main() {
     const swBody = swRes.body.toString('utf8');
     assert.match(swBody, /CACHE_NAME/);
     assert.match(swBody, /notificationclick/);
-    assert.match(swBody, /pipeshare-shell-v7/);
+    assert.match(swBody, /pipeshare-shell-v\d+/);
     assert.match(swRes.headers['cache-control'] || '', /no-cache/);
 
     const iconRes = await httpGet(`${BASE}/icons/icon-512.png`);
@@ -363,6 +363,18 @@ async function main() {
     assert.match(iconRes.headers['content-type'] || '', /image\/png/);
     assert.strictEqual(iconRes.body.readUInt32BE(16), 512);
     assert.strictEqual(iconRes.body.readUInt32BE(20), 512);
+
+    for (const sound of ['ptt-static.mp3', 'ptt-beep.mp3']) {
+      const soundRes = await httpGet(`${BASE}/sounds/${sound}`);
+      assert.strictEqual(soundRes.status, 200, `${sound} 应可访问`);
+      assert.match(
+        soundRes.headers['content-type'] || '',
+        /audio\/mpeg/,
+        `${sound} 应返回音频类型`,
+      );
+      assert.ok(soundRes.body.length > 1000, `${sound} 不应为空`);
+      assert.ok(swBody.includes(`./sounds/${sound}`), `SW 应预缓存 ${sound}`);
+    }
 
     const alice = await connectClient();
     const bob = await connectClient();

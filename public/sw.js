@@ -11,7 +11,7 @@
  * 注意：修改静态资源后请同步提升 CACHE_NAME，让旧缓存被清理。
  */
 
-const CACHE_NAME = 'pipeshare-shell-v7';
+const CACHE_NAME = 'pipeshare-shell-v8';
 const SCOPE = self.registration.scope;
 const SHELL_URL = new URL('./index.html', SCOPE).href;
 const HOME_URL = new URL('./', SCOPE).href;
@@ -21,6 +21,8 @@ const APP_SHELL = [
   './index.html',
   './favicon.svg',
   './manifest.webmanifest',
+  './sounds/ptt-static.mp3',
+  './sounds/ptt-beep.mp3',
   './socket.io/socket.io.esm.min.js',
   './icons/icon.svg',
   './icons/icon-192.png',
